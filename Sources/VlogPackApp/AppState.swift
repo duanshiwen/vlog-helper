@@ -18,6 +18,8 @@ final class AppState {
 
     /// 是否需要显示设置向导
     var needsSetup: Bool = false
+    /// 时间线中选中的片段 ID
+    var selectedClipId: String?
 
     /// 是否已打开项目
     var hasOpenProject: Bool {

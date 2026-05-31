@@ -47,30 +47,25 @@ public final class ExportService: @unchecked Sendable {
             withIntermediateDirectories: true
         )
 
-        // 使用 concat demuxer 方式（更可靠）
-        let concatFileURL = projectRoot.appendingPathComponent("cache/temp/concat.txt")
-        try plan.concatFileContent.write(
-            to: concatFileURL,
-            atomically: true,
-            encoding: .utf8
-        )
+        let result: FFmpegResult
 
-        let args = [
-            "-f", "concat",
-            "-safe", "0",
-            "-i", concatFileURL.path,
-            "-c:v", plan.videoCodec,
-            "-c:a", plan.audioCodec,
-            "-preset", "medium",
-            "-crf", "23",
-            "-movflags", "+faststart",
-            "-y", plan.outputPath
-        ]
-
-        let result = try ffmpeg.executeWithProgress(
-            arguments: args,
-            onProgress: onProgress
-        )
+        if plan.segments.count == 1 {
+            // 单片段：直接用 -ss/-to 裁切
+            result = try exportSingleSegment(
+                segment: plan.segments[0],
+                outputPath: plan.outputPath,
+                onProgress: onProgress
+            )
+        } else {
+            // 多片段：逐个裁切后拼接
+            result = try exportMultiSegments(
+                segments: plan.segments,
+                projectRoot: projectRoot,
+                outputPath: plan.outputPath,
+                resolution: plan.resolution,
+                onProgress: onProgress
+            )
+        }
 
         // 写入日志
         writeExportLog(
@@ -84,6 +79,87 @@ public final class ExportService: @unchecked Sendable {
         }
 
         return plan.outputPath
+    }
+
+    /// 单片段裁切导出
+    private func exportSingleSegment(
+        segment: FFmpegExportSegment,
+        outputPath: String,
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) throws -> FFmpegResult {
+        let args = [
+            "-ss", String(format: "%.3f", segment.inPoint),
+            "-i", segment.sourcePath,
+            "-to", String(format: "%.3f", segment.duration),
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            "-y", outputPath
+        ]
+        return try ffmpeg.executeWithProgress(arguments: args, onProgress: onProgress)
+    }
+
+    /// 多片段裁切 + 拼接
+    private func exportMultiSegments(
+        segments: [FFmpegExportSegment],
+        projectRoot: URL,
+        outputPath: String,
+        resolution: Resolution,
+        onProgress: @escaping @Sendable (Double) -> Void
+    ) throws -> FFmpegResult {
+        let tempDir = projectRoot.appendingPathComponent("cache/temp")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        // 1. 逐个裁切片段
+        var trimmedPaths: [String] = []
+        for (i, seg) in segments.enumerated() {
+            let trimmedURL = tempDir.appendingPathComponent(String(format: "trimmed_%03d.mp4", i))
+            let args = [
+                "-ss", String(format: "%.3f", seg.inPoint),
+                "-i", seg.sourcePath,
+                "-to", String(format: "%.3f", seg.duration),
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-y", trimmedURL.path
+            ]
+            let result = try ffmpeg.execute(arguments: args)
+            guard result.success else {
+                throw ExportServiceError.exportFailed(
+                    details: "片段 \(i) 裁切失败: \(result.stderr)"
+                )
+            }
+            trimmedPaths.append(trimmedURL.path)
+        }
+
+        // 2. 用 concat demuxer 拼接（已裁切片段，无 inpoint/outpoint）
+        let concatURL = tempDir.appendingPathComponent("concat.txt")
+        let concatContent = trimmedPaths.map { "file '\($0)'" }.joined(separator: "\n")
+        try concatContent.write(to: concatURL, atomically: true, encoding: .utf8)
+
+        let args = [
+            "-f", "concat",
+            "-safe", "0",
+            "-i", concatURL.path,
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-movflags", "+faststart",
+            "-y", outputPath
+        ]
+        let result = try ffmpeg.executeWithProgress(arguments: args, onProgress: onProgress)
+
+        // 3. 清理临时裁切文件
+        for path in trimmedPaths {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        try? FileManager.default.removeItem(at: concatURL)
+
+        return result
     }
 
     // MARK: - 导出带字幕视频

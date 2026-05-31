@@ -31,10 +31,16 @@ public final class WhisperAdapter: @unchecked Sendable {
 
     public init(
         whisperPath: String? = nil,
-        modelPath: String = ""
+        modelPath: String? = nil
     ) {
         self.whisperPath = whisperPath ?? Self.resolvePath("whisper-cli", fallback: "/opt/homebrew/bin/whisper-cli")
-        self.modelPath = modelPath
+        self.modelPath = modelPath ?? Self.defaultModelPath()
+    }
+
+    /// 默认模型路径: ~/.vlogpack/whisper-models/ggml-base.bin
+    private static func defaultModelPath() -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent(".vlogpack/whisper-models/ggml-base.bin").path
     }
 
     /// 解析二进制路径
@@ -54,9 +60,21 @@ public final class WhisperAdapter: @unchecked Sendable {
         return fallback
     }
 
-    /// 检查 whisper 是否可用
+    /// 检查 whisper 是否可用（二进制 + 模型都存在）
     public func checkAvailability() -> Bool {
+        let binaryOK = FileManager.default.fileExists(atPath: whisperPath)
+        let modelOK = FileManager.default.fileExists(atPath: modelPath)
+        return binaryOK && modelOK
+    }
+
+    /// 仅检查二进制是否可用
+    public func checkBinaryAvailable() -> Bool {
         FileManager.default.fileExists(atPath: whisperPath)
+    }
+
+    /// 仅检查模型是否可用
+    public func checkModelAvailable() -> Bool {
+        FileManager.default.fileExists(atPath: modelPath)
     }
 
     /// 执行转写
@@ -100,7 +118,20 @@ public final class WhisperAdapter: @unchecked Sendable {
         guard process.terminationStatus == 0 else {
             let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-            throw WhisperError.transcriptionFailed(details: stderr)
+            let exitCode = process.terminationStatus
+
+            // 提供更友好的错误信息
+            let hint: String
+            if !FileManager.default.fileExists(atPath: modelPath) {
+                hint = "模型文件不存在: \(modelPath)，请在设置页下载模型"
+            } else if exitCode == 2 {
+                hint = "参数错误或模型加载失败，请检查模型文件是否完整"
+            } else if exitCode == 137 {
+                hint = "进程被杀死（内存不足？）"
+            } else {
+                hint = stderr.isEmpty ? "未知错误" : stderr
+            }
+            throw WhisperError.transcriptionFailed(details: "whisper-cli 退出码 \(exitCode): \(hint)")
         }
 
         // 解析 JSON 输出

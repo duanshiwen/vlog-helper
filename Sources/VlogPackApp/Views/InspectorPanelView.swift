@@ -3,6 +3,7 @@ import VlogPackCore
 
 /// 检查器标签
 enum InspectorTab: String, CaseIterable {
+    case trim = "裁剪"
     case subtitles = "字幕"
     case cover = "封面"
     case export = "导出"
@@ -28,6 +29,8 @@ struct InspectorPanelView: View {
 
             // 内容
             switch selectedTab {
+            case .trim:
+                TrimEditorView()
             case .subtitles:
                 SubtitleEditorView()
             case .cover:

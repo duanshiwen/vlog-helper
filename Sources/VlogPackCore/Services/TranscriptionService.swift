@@ -42,32 +42,61 @@ public final class TranscriptionService: @unchecked Sendable {
             throw TranscriptionServiceError.noClips
         }
 
-        let concatFile = projectRoot.appendingPathComponent("cache/temp/whisper_concat.txt")
-        try plan.concatFileContent.write(
-            to: concatFile,
-            atomically: true,
-            encoding: .utf8
-        )
+        // 2. 逐个裁切片段并拼接为临时视频
+        let tempDir = projectRoot.appendingPathComponent("cache/temp")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        // 2. 提取音频为 WAV
+        var trimmedPaths: [String] = []
+        for (i, seg) in plan.segments.enumerated() {
+            let trimmedURL = tempDir.appendingPathComponent(String(format: "whisper_trimmed_%03d.mp4", i))
+            let args = [
+                "-ss", String(format: "%.3f", seg.inPoint),
+                "-i", seg.sourcePath,
+                "-to", String(format: "%.3f", seg.duration),
+                "-c:v", "copy", "-c:a", "aac",
+                "-y", trimmedURL.path
+            ]
+            let result = try ffmpeg.execute(arguments: args)
+            guard result.success else {
+                throw TranscriptionServiceError.audioExtractionFailed
+            }
+            trimmedPaths.append(trimmedURL.path)
+        }
+
+        // 拼接裁切后的片段
+        let tempVideo = projectRoot.appendingPathComponent("cache/temp/whisper_temp.mp4")
+        if trimmedPaths.count == 1 {
+            try FileManager.default.copyItem(
+                atPath: trimmedPaths[0],
+                toPath: tempVideo.path
+            )
+        } else {
+            let concatURL = tempDir.appendingPathComponent("whisper_concat.txt")
+            let concatContent = trimmedPaths.map { "file '\($0)'" }.joined(separator: "\n")
+            try concatContent.write(to: concatURL, atomically: true, encoding: .utf8)
+
+            let concatResult = try ffmpeg.execute(arguments: [
+                "-f", "concat", "-safe", "0",
+                "-i", concatURL.path,
+                "-c:v", "copy", "-c:a", "aac",
+                "-y", tempVideo.path
+            ])
+            guard concatResult.success else {
+                throw TranscriptionServiceError.audioExtractionFailed
+            }
+            try? FileManager.default.removeItem(at: concatURL)
+        }
+
+        // 清理裁切临时文件
+        for path in trimmedPaths {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+
+        // 3. 提取 16kHz 单声道 WAV（whisper 要求）
         let audioOutput = projectRoot.appendingPathComponent("cache/audio/timeline.wav")
         let audioDir = audioOutput.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
 
-        // 先用 concat 生成临时视频再提取音频
-        let tempVideo = projectRoot.appendingPathComponent("cache/temp/whisper_temp.mp4")
-        let concatResult = try ffmpeg.execute(arguments: [
-            "-f", "concat", "-safe", "0",
-            "-i", concatFile.path,
-            "-c:v", "copy", "-c:a", "aac",
-            "-y", tempVideo.path
-        ])
-
-        guard concatResult.success else {
-            throw TranscriptionServiceError.audioExtractionFailed
-        }
-
-        // 提取 16kHz 单声道 WAV（whisper 要求）
         let audioResult = try ffmpeg.extractAudio(
             fromVideoPath: tempVideo.path,
             outputPath: audioOutput.path
@@ -76,6 +105,9 @@ public final class TranscriptionService: @unchecked Sendable {
         guard audioResult.success else {
             throw TranscriptionServiceError.audioExtractionFailed
         }
+
+        // 清理临时视频
+        try? FileManager.default.removeItem(at: tempVideo)
 
         // 3. 调用 whisper 转写
         let whisperResult = try whisper.transcribe(
@@ -99,9 +131,6 @@ public final class TranscriptionService: @unchecked Sendable {
         // 保存字幕 JSON
         let subtitleURL = projectRoot.appendingPathComponent("subtitles/subtitles.json")
         try JSONStore.write(doc, to: subtitleURL)
-
-        // 清理临时文件
-        try? FileManager.default.removeItem(at: tempVideo)
 
         return doc
     }
