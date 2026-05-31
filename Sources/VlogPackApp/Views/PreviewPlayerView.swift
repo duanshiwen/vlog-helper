@@ -25,10 +25,11 @@ struct PreviewPlayerView: View {
     @Environment(AppState.self) private var appState
     @State private var player: AVPlayer?
     @State private var isPlaying = false
-    @State private var currentTime: Double = 0
-    @State private var duration: Double = 0
-    @State private var currentPlayingClipId: String?
+    @State private var relativeTime: Double = 0   // 相对于 inPoint 的时间
     @State private var timeObserverToken: Any?
+
+    /// 当前播放的片段关键参数（用于检测裁剪变化）
+    @State private var loadedClipKey: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,6 +59,7 @@ struct PreviewPlayerView: View {
             if player != nil {
                 Divider()
                 HStack(spacing: 12) {
+                    // 播放/暂停
                     Button {
                         togglePlay()
                     } label: {
@@ -65,14 +67,20 @@ struct PreviewPlayerView: View {
                     }
                     .buttonStyle(.borderless)
 
-                    Slider(value: $currentTime, in: 0...max(duration, 1)) { editing in
-                        if !editing {
-                            let time = CMTime(seconds: currentTime, preferredTimescale: 600)
+                    // 进度条（relativeTime: 0 = inPoint，duration = outPoint - inPoint）
+                    Slider(
+                        value: $relativeTime,
+                        in: 0...max(currentClip?.duration ?? 1, 0.1)
+                    ) { editing in
+                        if !editing, let clip = currentClip {
+                            let absoluteTime = clip.inPoint + relativeTime
+                            let time = CMTime(seconds: absoluteTime, preferredTimescale: 600)
                             player?.seek(to: time)
                         }
                     }
 
-                    Text(formatTime(currentTime) + " / " + formatTime(duration))
+                    // 时间显示
+                    Text(formatTime(relativeTime) + " / " + formatTime(currentClip?.duration ?? 0))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 100)
@@ -83,93 +91,102 @@ struct PreviewPlayerView: View {
             }
         }
         .onChange(of: appState.selectedClipId) { _, _ in
-            loadClipForSelected()
+            reloadIfNeeded()
         }
         .onChange(of: clipCount) { _, _ in
-            // 片段增减时也刷新
-            loadClipForSelected()
+            reloadIfNeeded()
+        }
+        .onChange(of: clipTrimKey) { _, _ in
+            // 裁剪参数变化时强制刷新
+            forceReload()
         }
         .onAppear {
-            loadClipForSelected()
+            reloadIfNeeded()
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - 当前片段
 
-    /// 当前时间线片段数量（用于监听变化）
+    private var currentClip: TimelineClip? {
+        guard let project = appState.currentProject else { return nil }
+        if let id = appState.selectedClipId,
+           let clip = project.timeline.clips.first(where: { $0.id == id }) {
+            return clip
+        }
+        return project.timeline.sortedClips.first
+    }
+
     private var clipCount: Int {
         appState.currentProject?.timeline.clips.count ?? 0
     }
 
-    /// 获取当前要播放的片段和素材
-    private var currentClipAndMedia: (TimelineClip, MediaItem)? {
-        guard let project = appState.currentProject,
-              let root = appState.currentProjectRoot else { return nil }
-
-        // 优先播放选中的片段
-        if let selectedId = appState.selectedClipId,
-           let clip = project.timeline.clips.first(where: { $0.id == selectedId }),
-           let media = project.mediaItems.first(where: { $0.id == clip.mediaItemId }) {
-            return (clip, media)
-        }
-
-        // 否则播放第一个片段
-        if let firstClip = project.timeline.sortedClips.first,
-           let media = project.mediaItems.first(where: { $0.id == firstClip.mediaItemId }) {
-            return (firstClip, media)
-        }
-
-        return nil
+    /// 裁剪参数指纹，用于检测 in/out 变化
+    private var clipTrimKey: String {
+        guard let clip = currentClip else { return "" }
+        return "\(clip.id)_\(clip.inPoint)_\(clip.outPoint)"
     }
 
-    private func loadClipForSelected() {
-        guard let (clip, media) = currentClipAndMedia,
-              let root = appState.currentProjectRoot else {
+    // MARK: - 加载
+
+    private func reloadIfNeeded() {
+        let key = clipTrimKey
+        guard key != loadedClipKey else { return }
+        forceReload()
+    }
+
+    private func forceReload() {
+        guard let clip = currentClip,
+              let project = appState.currentProject,
+              let root = appState.currentProjectRoot,
+              let media = project.mediaItems.first(where: { $0.id == clip.mediaItemId }) else {
             player = nil
-            currentPlayingClipId = nil
+            loadedClipKey = ""
             return
         }
 
-        // 同一个片段不需要重新加载
-        if clip.id == currentPlayingClipId { return }
-
         let wasPlaying = isPlaying
         player?.pause()
+        if let token = timeObserverToken {
+            player?.removeTimeObserver(token)
+            timeObserverToken = nil
+        }
 
         let url = root.appendingPathComponent(media.projectRelativePath)
         let avPlayer = AVPlayer(url: url)
 
-        // 跳到入点
+        // 跳到入点（用 toleranceBefore 精确定位）
         if clip.inPoint > 0 {
             let startTime = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
-            avPlayer.seek(to: startTime)
+            avPlayer.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
         }
 
         self.player = avPlayer
-        self.duration = clip.duration
-        self.currentTime = clip.inPoint
+        self.relativeTime = 0
         self.isPlaying = false
-        self.currentPlayingClipId = clip.id
+        self.loadedClipKey = clipTrimKey
 
         addPeriodicObserver()
 
-        // 之前在播放则自动播放
+        // 之前在播放则自动继续
         if wasPlaying {
             avPlayer.play()
             isPlaying = true
         }
     }
 
+    // MARK: - 播放控制
+
     private func togglePlay() {
-        guard let player else { return }
+        guard let player, let clip = currentClip else { return }
         if isPlaying {
             player.pause()
         } else {
-            // 如果播放到了出点附近，回到入点
-            let clip = currentClipAndMedia?.0
-            if let clip, currentTime >= clip.outPoint - 0.2 {
+            // 如果已到出点附近，回到入点
+            let absTime = clip.inPoint + relativeTime
+            if absTime >= clip.outPoint - 0.3 {
                 let start = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
-                player.seek(to: start)
+                player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
+                relativeTime = 0
             }
             player.play()
         }
@@ -178,7 +195,6 @@ struct PreviewPlayerView: View {
 
     private func addPeriodicObserver() {
         guard let player else { return }
-        // 移除旧的观察者
         if let token = timeObserverToken {
             player.removeTimeObserver(token)
             timeObserverToken = nil
@@ -186,16 +202,25 @@ struct PreviewPlayerView: View {
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             Task { @MainActor in
-                currentTime = time.seconds
-                // 播放到出点时自动暂停
-                if let clip = currentClipAndMedia?.0,
-                   time.seconds >= clip.outPoint - 0.1 {
+                guard let clip = currentClip else { return }
+                let abs = time.seconds
+                // 计算相对于 inPoint 的时间
+                let rel = max(0, abs - clip.inPoint)
+                relativeTime = min(rel, clip.duration)
+
+                // 超过出点自动暂停并回到入点
+                if abs >= clip.outPoint - 0.05 {
                     player.pause()
                     isPlaying = false
+                    let start = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
+                    player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
+                    relativeTime = 0
                 }
             }
         }
     }
+
+    // MARK: - 格式化
 
     private func formatTime(_ t: Double) -> String {
         guard t.isFinite && t >= 0 else { return "0:00" }
