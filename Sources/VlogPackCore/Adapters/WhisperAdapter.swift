@@ -37,10 +37,20 @@ public final class WhisperAdapter: @unchecked Sendable {
         self.modelPath = modelPath ?? Self.defaultModelPath()
     }
 
-    /// 默认模型路径: ~/.vlogpack/whisper-models/ggml-base.bin
+    /// 默认模型路径: 优先 large-v3 > medium > small > base
     private static func defaultModelPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".vlogpack/whisper-models/ggml-base.bin").path
+        let modelsDir = home.appendingPathComponent(".vlogpack/whisper-models")
+        // 按优先级查找已下载的模型
+        let candidates = ["ggml-large-v3.bin", "ggml-medium.bin", "ggml-small.bin", "ggml-base.bin", "ggml-tiny.bin"]
+        for name in candidates {
+            let path = modelsDir.appendingPathComponent(name).path
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        // 兜底返回 large-v3（即使不存在，给用户明确提示）
+        return modelsDir.appendingPathComponent("ggml-large-v3.bin").path
     }
 
     /// 解析 whisper 路径（不查 Bundle，因为依赖动态库无法单独运行）
@@ -94,6 +104,9 @@ public final class WhisperAdapter: @unchecked Sendable {
             "-of", outputDir + "/whisper_output",
             "--output-srt",
             "--no-prints",
+            "--beam-size", "5",
+            "--best-of", "5",
+            "--entropy-thold", "2.4",
         ]
 
         // 如果模型路径为空，使用自动检测
