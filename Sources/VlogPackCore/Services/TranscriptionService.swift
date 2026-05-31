@@ -23,9 +23,9 @@ public final class TranscriptionService: @unchecked Sendable {
 
     // MARK: - 执行转写
 
-    /// 从时间线生成字幕
+    /// 从时间线生成字幕（只读 project，返回字幕文档）
     public func transcribeFromTimeline(
-        project: inout VlogProject,
+        project: VlogProject,
         projectRoot: URL,
         language: String = "zh"
     ) throws -> SubtitleDocument {
@@ -126,7 +126,6 @@ public final class TranscriptionService: @unchecked Sendable {
         }
 
         let doc = SubtitleDocument(segments: segments)
-        project.subtitles = doc
 
         // 保存字幕 JSON
         let subtitleURL = projectRoot.appendingPathComponent("subtitles/subtitles.json")

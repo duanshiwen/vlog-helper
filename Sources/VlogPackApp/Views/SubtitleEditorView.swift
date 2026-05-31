@@ -133,25 +133,36 @@ struct SubtitleEditorView: View {
 
     private func transcribe() {
         guard let root = appState.currentProjectRoot,
-              appState.currentProject != nil else { return }
+              let project = appState.currentProject else { return }
 
         isTranscribing = true
         transcriptionError = nil
 
         let svc = transcriptionService
+        // 复制一份 project 给后台线程，避免 MainActor 排他性冲突
+        let projectCopy = project
+        let projectRoot = root
 
         Task {
             do {
-                try svc.transcribeFromTimeline(
-                    project: &appState.currentProject!,
-                    projectRoot: root,
+                let doc = try svc.transcribeFromTimeline(
+                    project: projectCopy,
+                    projectRoot: projectRoot,
                     language: "zh"
                 )
-                try? appState.saveCurrentProject()
+                // 回到 MainActor 应用结果
+                await MainActor.run {
+                    appState.currentProject?.subtitles = doc
+                    try? appState.saveCurrentProject()
+                }
             } catch {
-                transcriptionError = "转写失败：\(error.localizedDescription)"
+                await MainActor.run {
+                    transcriptionError = "转写失败：\(error.localizedDescription)"
+                }
             }
-            isTranscribing = false
+            await MainActor.run {
+                isTranscribing = false
+            }
         }
     }
 
