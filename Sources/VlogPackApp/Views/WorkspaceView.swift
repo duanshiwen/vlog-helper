@@ -1,7 +1,7 @@
 import SwiftUI
 import VlogPackCore
 
-/// 主工作台（v0.1 占位实现）
+/// 主工作台
 struct WorkspaceView: View {
     @Environment(AppState.self) private var appState
 
@@ -14,29 +14,22 @@ struct WorkspaceView: View {
 
             // 主内容区
             HSplitView {
-                // 左侧：素材区（占位）
-                MediaLibraryPlaceholder()
-                    .frame(minWidth: 200, idealWidth: 250)
+                // 左侧：素材库
+                MediaLibraryView()
+                    .frame(minWidth: 200, idealWidth: 260, maxWidth: 350)
 
-                // 中间：预览区（占位）
-                VStack {
-                    Image(systemName: "film")
-                        .font(.system(size: 64))
-                        .foregroundStyle(.tertiary)
-                    Text("视频预览区")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 中间：预览播放器
+                PreviewPlayerView()
+                    .frame(minWidth: 400, idealWidth: 600)
 
-                // 右侧：检查器（占位）
-                InspectorPlaceholder()
-                    .frame(minWidth: 200, idealWidth: 250)
+                // 右侧：检查器
+                InspectorPanelView()
+                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
             }
 
-            // 底部：时间线（占位）
-            TimelinePlaceholder()
-                .frame(height: 160)
+            // 底部：时间线
+            TimelineView()
+                .frame(height: 140)
         }
     }
 }
@@ -45,6 +38,7 @@ struct WorkspaceView: View {
 
 struct TopBar: View {
     @Environment(AppState.self) private var appState
+    @State private var showSaveStatus = false
 
     var body: some View {
         HStack {
@@ -61,86 +55,45 @@ struct TopBar: View {
 
             Spacer()
 
-            Text("粗剪 → 转写 → 校对 → 导出")
+            Text("素材 → 粗剪 → 字幕 → 封面 → 导出")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             Spacer()
 
-            Button("导出") { }
-                .disabled(true)
-                .help("请先完成粗剪（v0.1-beta 可用）")
+            if showSaveStatus {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("已保存")
+                        .font(.caption)
+                }
+                .transition(.opacity)
+            }
+
+            Button {
+                saveProject()
+            } label: {
+                Image(systemName: "square.and.arrow.down")
+            }
+            .buttonStyle(.borderless)
+            .help("保存项目")
+            .keyboardShortcut("s", modifiers: .command)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color(nsColor: .controlBackgroundColor))
     }
-}
 
-// MARK: - 素材区占位
-
-struct MediaLibraryPlaceholder: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "photo.on.rectangle")
-                .font(.title)
-                .foregroundStyle(.tertiary)
-            Text("素材库")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            Text("拖入视频/图片素材")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            Spacer()
+    private func saveProject() {
+        try? appState.saveCurrentProject()
+        withAnimation {
+            showSaveStatus = true
         }
-        .padding(.top, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-}
-
-// MARK: - 检查器占位
-
-struct InspectorPlaceholder: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sidebar.right")
-                .font(.title)
-                .foregroundStyle(.tertiary)
-            Text("检查器")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            Text("字幕 / 封面 / 导出")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            Spacer()
-        }
-        .padding(.top, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-}
-
-// MARK: - 时间线占位
-
-struct TimelinePlaceholder: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            Divider()
-            HStack {
-                Image(systemName: "timeline.selection")
-                    .foregroundStyle(.tertiary)
-                Text("时间线：拖入素材后自动出现片段")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Clip-based Timeline")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation {
+                showSaveStatus = false
             }
-            .padding(.horizontal, 12)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .controlBackgroundColor))
     }
 }
