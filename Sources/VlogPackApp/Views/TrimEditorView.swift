@@ -176,6 +176,7 @@ struct TrimEditorView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onChange(of: appState.selectedClipId) {
             refreshTexts()
         }

@@ -27,19 +27,22 @@ struct InspectorPanelView: View {
 
             Divider()
 
-            // 内容
-            switch selectedTab {
-            case .trim:
-                TrimEditorView()
-            case .subtitles:
-                SubtitleEditorView()
-            case .cover:
-                CoverEditorView()
-            case .export:
-                ExportView()
-            case .project:
-                ProjectInfoView()
+            // 内容（ScrollView 防止切换 Tab 时窗口变形）
+            ScrollView {
+                switch selectedTab {
+                case .trim:
+                    TrimEditorView()
+                case .subtitles:
+                    SubtitleEditorView()
+                case .cover:
+                    CoverEditorView()
+                case .export:
+                    ExportView()
+                case .project:
+                    ProjectInfoView()
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color(nsColor: .controlBackgroundColor))
     }
