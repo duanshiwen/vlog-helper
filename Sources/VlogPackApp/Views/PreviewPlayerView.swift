@@ -27,6 +27,8 @@ struct PreviewPlayerView: View {
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
+    @State private var currentPlayingClipId: String?
+    @State private var timeObserverToken: Any?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,34 +82,82 @@ struct PreviewPlayerView: View {
                 .background(Color(nsColor: .controlBackgroundColor))
             }
         }
-        .onChange(of: selectedClipMediaItem) { _, _ in
-            loadClip()
+        .onChange(of: appState.selectedClipId) { _, _ in
+            loadClipForSelected()
+        }
+        .onChange(of: clipCount) { _, _ in
+            // 片段增减时也刷新
+            loadClipForSelected()
+        }
+        .onAppear {
+            loadClipForSelected()
         }
     }
 
     // MARK: - Helpers
 
-    private var selectedClipMediaItem: MediaItem? {
-        // 如果有时间线片段，播放第一个
-        guard let project = appState.currentProject,
-              let firstClip = project.timeline.sortedClips.first,
-              let root = appState.currentProjectRoot else { return nil }
-        let mediaItem = project.mediaItems.first { $0.id == firstClip.mediaItemId }
-        return mediaItem
+    /// 当前时间线片段数量（用于监听变化）
+    private var clipCount: Int {
+        appState.currentProject?.timeline.clips.count ?? 0
     }
 
-    private func loadClip() {
-        guard let item = selectedClipMediaItem,
+    /// 获取当前要播放的片段和素材
+    private var currentClipAndMedia: (TimelineClip, MediaItem)? {
+        guard let project = appState.currentProject,
+              let root = appState.currentProjectRoot else { return nil }
+
+        // 优先播放选中的片段
+        if let selectedId = appState.selectedClipId,
+           let clip = project.timeline.clips.first(where: { $0.id == selectedId }),
+           let media = project.mediaItems.first(where: { $0.id == clip.mediaItemId }) {
+            return (clip, media)
+        }
+
+        // 否则播放第一个片段
+        if let firstClip = project.timeline.sortedClips.first,
+           let media = project.mediaItems.first(where: { $0.id == firstClip.mediaItemId }) {
+            return (firstClip, media)
+        }
+
+        return nil
+    }
+
+    private func loadClipForSelected() {
+        guard let (clip, media) = currentClipAndMedia,
               let root = appState.currentProjectRoot else {
             player = nil
+            currentPlayingClipId = nil
             return
         }
 
-        let url = root.appendingPathComponent(item.projectRelativePath)
+        // 同一个片段不需要重新加载
+        if clip.id == currentPlayingClipId { return }
+
+        let wasPlaying = isPlaying
+        player?.pause()
+
+        let url = root.appendingPathComponent(media.projectRelativePath)
         let avPlayer = AVPlayer(url: url)
+
+        // 跳到入点
+        if clip.inPoint > 0 {
+            let startTime = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
+            avPlayer.seek(to: startTime)
+        }
+
         self.player = avPlayer
-        self.duration = item.duration
-        self.currentTime = 0
+        self.duration = clip.duration
+        self.currentTime = clip.inPoint
+        self.isPlaying = false
+        self.currentPlayingClipId = clip.id
+
+        addPeriodicObserver()
+
+        // 之前在播放则自动播放
+        if wasPlaying {
+            avPlayer.play()
+            isPlaying = true
+        }
     }
 
     private func togglePlay() {
@@ -115,6 +165,12 @@ struct PreviewPlayerView: View {
         if isPlaying {
             player.pause()
         } else {
+            // 如果播放到了出点附近，回到入点
+            let clip = currentClipAndMedia?.0
+            if let clip, currentTime >= clip.outPoint - 0.2 {
+                let start = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
+                player.seek(to: start)
+            }
             player.play()
         }
         isPlaying.toggle()
@@ -122,10 +178,21 @@ struct PreviewPlayerView: View {
 
     private func addPeriodicObserver() {
         guard let player else { return }
+        // 移除旧的观察者
+        if let token = timeObserverToken {
+            player.removeTimeObserver(token)
+            timeObserverToken = nil
+        }
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
-        player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
+        timeObserverToken = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { time in
             Task { @MainActor in
                 currentTime = time.seconds
+                // 播放到出点时自动暂停
+                if let clip = currentClipAndMedia?.0,
+                   time.seconds >= clip.outPoint - 0.1 {
+                    player.pause()
+                    isPlaying = false
+                }
             }
         }
     }

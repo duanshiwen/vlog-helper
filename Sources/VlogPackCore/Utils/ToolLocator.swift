@@ -133,10 +133,23 @@ public struct ToolLocator: Sendable {
     }
 
     private static func findInAppBundle(name: String) -> String? {
-        // 检查是否在 App Bundle 的 Resources 目录中
-        guard let bundlePath = Bundle.main.resourcePath else { return nil }
-        let fullPath = (bundlePath as NSString).appendingPathComponent(name)
-        return FileManager.default.fileExists(atPath: fullPath) ? fullPath : nil
+        // 1. 检查 MacOS 目录（构建脚本放在这里）
+        if let execPath = Bundle.main.executableURL?.deletingLastPathComponent().path {
+            let fullPath = (execPath as NSString).appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: fullPath) {
+                return fullPath
+            }
+        }
+
+        // 2. 检查 Resources 目录
+        if let bundlePath = Bundle.main.resourcePath {
+            let fullPath = (bundlePath as NSString).appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: fullPath) {
+                return fullPath
+            }
+        }
+
+        return nil
     }
 
     private static func findInPATH(name: String) -> String? {
