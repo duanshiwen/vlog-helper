@@ -94,24 +94,13 @@ else
     echo "  ⚠️  FFmpeg not found on PATH — app will use system FFmpeg"
 fi
 
-# Whisper.cpp (optional, 只内置真正的 native 二进制)
-WHISPER_BIN="${WHISPER_PATH:-}"
-if [ -z "$WHISPER_BIN" ]; then
-    # 查找 whisper-cli 或 whisper-cpp (排除 Python 脚本)
-    for candidate in whisper-cli whisper-cpp; do
-        FOUND=$(which "$candidate" 2>/dev/null || true)
-        if [ -n "$FOUND" ] && file "$FOUND" 2>/dev/null | grep -q "Mach-O"; then
-            WHISPER_BIN="$FOUND"
-            break
-        fi
-    done
-fi
-if [ -n "$WHISPER_BIN" ] && [ -f "$WHISPER_BIN" ] && file "$WHISPER_BIN" 2>/dev/null | grep -q "Mach-O"; then
-    cp "$WHISPER_BIN" "$APP_DIR/Contents/MacOS/whisper-cli"
-    chmod +x "$APP_DIR/Contents/MacOS/whisper-cli"
-    echo "  ✓ Whisper.cpp bundled from $WHISPER_BIN"
+# Whisper.cpp — 不打包（依赖动态库 libwhisper/libggml，无法单独运行）
+WHISPER_BIN=$(which whisper-cli 2>/dev/null || which whisper-cpp 2>/dev/null || echo "/opt/homebrew/bin/whisper-cli")
+if [ -f "$WHISPER_BIN" ] && file "$WHISPER_BIN" 2>/dev/null | grep -q "Mach-O"; then
+    echo "  ✓ Whisper.cpp found at $WHISPER_BIN (system, not bundled)"
 else
-    echo "  ℹ️  Whisper.cpp not bundled (转写功能需手动安装 whisper.cpp)"
+    echo "  ℹ️  Whisper.cpp not found (optional, for subtitles)"
+    echo "    Install via: brew install whisper-cpp"
 fi
 
 # Step 5: Codesign

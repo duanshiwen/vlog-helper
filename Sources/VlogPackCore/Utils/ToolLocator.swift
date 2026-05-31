@@ -42,13 +42,39 @@ public struct ToolLocator: Sendable {
         )
     }
 
-    /// whisper.cpp 路径
+    /// whisper.cpp 路径（不打包，只查系统）
     public static func locateWhisper() -> ToolStatus {
-        locate(
-            name: "whisper",
-            appBundleName: "whisper-cli",
-            homebrewPath: "/opt/homebrew/bin/whisper-cli"
-        )
+        // whisper 依赖动态库，无法打包，直接查系统路径
+        let candidates = [
+            "/opt/homebrew/bin/whisper-cli",
+            "/opt/homebrew/bin/whisper-cpp",
+            "/usr/local/bin/whisper-cli",
+            "/usr/local/bin/whisper-cpp"
+        ]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) {
+                let version = getVersion(path)
+                return ToolStatus(
+                    name: "whisper",
+                    found: true,
+                    path: path,
+                    version: version,
+                    source: .homebrew
+                )
+            }
+        }
+        // fallback to PATH
+        if let pathInPATH = findInPATH(name: "whisper-cli") {
+            let version = getVersion(pathInPATH)
+            return ToolStatus(
+                name: "whisper",
+                found: true,
+                path: pathInPATH,
+                version: version,
+                source: .system
+            )
+        }
+        return ToolStatus(name: "whisper", found: false, path: nil, version: nil, source: nil)
     }
 
     /// 检查所有必要工具

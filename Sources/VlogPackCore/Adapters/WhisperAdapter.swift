@@ -33,7 +33,7 @@ public final class WhisperAdapter: @unchecked Sendable {
         whisperPath: String? = nil,
         modelPath: String? = nil
     ) {
-        self.whisperPath = whisperPath ?? Self.resolvePath("whisper-cli", fallback: "/opt/homebrew/bin/whisper-cli")
+        self.whisperPath = whisperPath ?? Self.resolveWhisperPath()
         self.modelPath = modelPath ?? Self.defaultModelPath()
     }
 
@@ -43,21 +43,24 @@ public final class WhisperAdapter: @unchecked Sendable {
         return home.appendingPathComponent(".vlogpack/whisper-models/ggml-base.bin").path
     }
 
-    /// 解析二进制路径
-    private static func resolvePath(_ name: String, fallback: String) -> String {
-        if let bundlePath = Bundle.main.path(forResource: name, ofType: nil) {
-            return bundlePath
-        }
-        if let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path {
-            let candidate = execDir + "/" + name
-            if FileManager.default.fileExists(atPath: candidate) {
-                return candidate
-            }
-        }
+    /// 解析 whisper 路径（不查 Bundle，因为依赖动态库无法单独运行）
+    private static func resolveWhisperPath() -> String {
+        // 环境变量优先
         if let envPath = ProcessInfo.processInfo.environment["WHISPER_PATH"], !envPath.isEmpty {
             return envPath
         }
-        return fallback
+        // 系统已安装路径
+        let candidates = [
+            "/opt/homebrew/bin/whisper-cli",
+            "/opt/homebrew/bin/whisper-cpp",
+            "/usr/local/bin/whisper-cli"
+        ]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return "/opt/homebrew/bin/whisper-cli"
     }
 
     /// 检查 whisper 是否可用（二进制 + 模型都存在）
