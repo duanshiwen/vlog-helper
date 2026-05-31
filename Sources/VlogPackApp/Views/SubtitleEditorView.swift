@@ -222,6 +222,7 @@ struct SubtitleSegmentRow: View {
     let onDelete: () -> Void
 
     @State private var editedText: String = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -260,11 +261,9 @@ struct SubtitleSegmentRow: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.body)
                 .lineLimit(1...4)
+                .focused($isFocused)
                 .onSubmit {
-                    onUpdateText(editedText)
-                }
-                .onChange(of: editedText) { _, newValue in
-                    // 实时保存（debounce 可以在后续优化）
+                    saveIfNeeded()
                 }
         }
         .padding(.vertical, 4)
@@ -272,9 +271,23 @@ struct SubtitleSegmentRow: View {
             editedText = segment.text
         }
         .onChange(of: segment.text) { _, newText in
-            if newText != editedText {
+            // 只在未编辑时同步外部变化
+            if !isFocused && newText != editedText {
                 editedText = newText
             }
+        }
+        .onChange(of: isFocused) { _, focused in
+            // 失去焦点时保存
+            if !focused {
+                saveIfNeeded()
+            }
+        }
+    }
+
+    private func saveIfNeeded() {
+        let trimmed = editedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != segment.text {
+            onUpdateText(trimmed)
         }
     }
 
