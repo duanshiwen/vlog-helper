@@ -163,20 +163,19 @@ struct TrimEditorView: View {
             } else {
                 // 未选中片段
                 VStack(spacing: 8) {
-                    Spacer()
                     Image(systemName: "scissors")
                         .font(.title2)
                         .foregroundStyle(.tertiary)
+                        .padding(.top, 40)
                     Text("在时间线中选择一个片段\n即可在此编辑裁剪范围")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    Spacer()
                 }
                 .frame(maxWidth: .infinity)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .onChange(of: appState.selectedClipId) {
             refreshTexts()
         }
