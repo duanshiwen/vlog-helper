@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import VlogPackCore
 
 /// 字幕编辑器视图
@@ -9,6 +10,7 @@ struct SubtitleEditorView: View {
     @State private var searchText = ""
     @State private var isTranscribing = false
     @State private var transcriptionError: String?
+    @State private var exportMessage: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,6 +50,16 @@ struct SubtitleEditorView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .padding(.horizontal, 8)
+            }
+            if let msg = exportMessage {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(msg)
+                        .font(.caption)
+                }
+                .padding(.horizontal, 8)
+                .transition(.opacity)
             }
 
             // 搜索
@@ -167,21 +179,37 @@ struct SubtitleEditorView: View {
     }
 
     private func exportSRT() {
-        guard let project = appState.currentProject,
-              let root = appState.currentProjectRoot else { return }
-
+        guard let project = appState.currentProject else { return }
         let srt = subtitleService.exportSRT(project: project)
-        let url = root.appendingPathComponent("exports/subtitles.srt")
-        try? srt.write(to: url, atomically: true, encoding: .utf8)
+        saveToPanel(content: srt, defaultName: "subtitles.srt", typeName: "srt")
     }
 
     private func exportASS() {
-        guard let project = appState.currentProject,
-              let root = appState.currentProjectRoot else { return }
-
+        guard let project = appState.currentProject else { return }
         let ass = subtitleService.exportASS(project: project)
-        let url = root.appendingPathComponent("exports/subtitles.ass")
-        try? ass.write(to: url, atomically: true, encoding: .utf8)
+        saveToPanel(content: ass, defaultName: "subtitles.ass", typeName: "ass")
+    }
+
+    private func saveToPanel(content: String, defaultName: String, typeName: String) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = defaultName
+        panel.allowedContentTypes = [.init(filenameExtension: typeName) ?? .plainText]
+        panel.canCreateDirectories = true
+        panel.title = "导出 \(typeName.uppercased())"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+                exportMessage = "已导出到 \(url.lastPathComponent)"
+                // 3 秒后自动隐藏
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    withAnimation { exportMessage = nil }
+                }
+            } catch {
+                transcriptionError = "导出失败：\(error.localizedDescription)"
+            }
+        }
     }
 }
 
