@@ -74,3 +74,26 @@
 - ✅ Bundle 结构：VlogPack.app/Contents/{MacOS,Resources,Info.plist,_CodeSignature}
 
 **下一步**：UI 打磨、拖拽排序时间线、字幕预览、性能优化
+
+---
+
+## 2026-06-01 — 首次启动引导 + 设置系统
+
+**完成内容**：
+- `ToolLocator`：FFmpeg/whisper.cpp 多路径解析器（App Bundle → Homebrew → PATH → 环境变量 → fallback）
+- `SetupService`：首次启动状态管理，持久化到 ~/.vlogpack/setup-state.json
+- `SetupWizardView`：首次启动设置向导（工具卡片状态检测 + Homebrew 安装引导 + 跳过选项）
+- `SettingsView`：应用设置页（通用/工具/模板三 Tab）
+- `scripts/build-app.sh`：.app Bundle 构建脚本，自动内置 FFmpeg/FFprobe
+- `scripts/run-dev.sh`：开发快速构建+运行一键脚本
+- 更新 AppState/ContentView 集成设置向导流程
+- 更新 Package.swift 正确排除 Resources 目录
+- 更新 README 完整项目文档
+
+**验证**：
+- swift build ✅
+- swift test ✅ (37 tests, 6 suites)
+- ./scripts/build-app.sh ✅ 生成可运行 .app
+- App 可正常启动运行
+
+**下一步**：集成测试（真实视频全流程）、UI 打磨、性能优化
