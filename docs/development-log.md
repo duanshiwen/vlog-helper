@@ -52,4 +52,25 @@
 - AVFoundation deprecated API：已标注，后续迁移至 async load* API
 - FFmpegKit 已退休：采用 Process 直接调用本地 FFmpeg 二进制
 
-**下一步**：集成测试、macOS App 打包（codesign + notarization）、性能优化
+**下一步**：macOS App 打包、性能优化、UI 打磨
+
+---
+
+## 2026-06-01 — macOS App 打包基础设施
+
+**完成内容**：
+- `Info.plist`：完整的 macOS 应用配置，包含权限描述、文件关联
+- `VlogPack.entitlements`：沙盒/网络/文件权限配置
+- `scripts/build-app.sh`：一键构建 .app Bundle，自动内置 FFmpeg/FFprobe/whisper.cpp
+- `scripts/package-dmg.sh`：创建 DMG 安装包
+- `WhisperModelManager`：模型下载/存储/管理，支持 5 种规格（tiny → large-v3）
+- `SettingsView`：外部工具状态检查 + Whisper 模型管理 UI
+- FFmpegAdapter/WhisperAdapter：Bundle-aware 路径解析（Bundle > MacOS 目录 > 环境变量 > Homebrew）
+
+**打包验证**：
+- ✅ .app Bundle 构建成功，FFmpeg/FFprobe/whisper.cpp 全部内置
+- ✅ Ad-hoc 签名通过
+- ✅ 37 个测试全部通过
+- ✅ Bundle 结构：VlogPack.app/Contents/{MacOS,Resources,Info.plist,_CodeSignature}
+
+**下一步**：UI 打磨、拖拽排序时间线、字幕预览、性能优化

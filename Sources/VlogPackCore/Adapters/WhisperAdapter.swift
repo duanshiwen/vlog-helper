@@ -30,11 +30,28 @@ public final class WhisperAdapter: @unchecked Sendable {
     public let modelPath: String
 
     public init(
-        whisperPath: String = "/opt/homebrew/bin/whisper-cli",
+        whisperPath: String? = nil,
         modelPath: String = ""
     ) {
-        self.whisperPath = whisperPath
+        self.whisperPath = whisperPath ?? Self.resolvePath("whisper-cli", fallback: "/opt/homebrew/bin/whisper-cli")
         self.modelPath = modelPath
+    }
+
+    /// 解析二进制路径
+    private static func resolvePath(_ name: String, fallback: String) -> String {
+        if let bundlePath = Bundle.main.path(forResource: name, ofType: nil) {
+            return bundlePath
+        }
+        if let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path {
+            let candidate = execDir + "/" + name
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
+        }
+        if let envPath = ProcessInfo.processInfo.environment["WHISPER_PATH"], !envPath.isEmpty {
+            return envPath
+        }
+        return fallback
     }
 
     /// 检查 whisper 是否可用

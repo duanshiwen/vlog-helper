@@ -6,7 +6,9 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if appState.hasOpenProject {
+            if appState.needsSetup {
+                SetupWizardView()
+            } else if appState.hasOpenProject {
                 WorkspaceView()
             } else {
                 LaunchView()

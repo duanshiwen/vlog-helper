@@ -42,10 +42,48 @@ docs/              — 架构文档
 
 ## 构建
 
+### 开发模式
+
 ```bash
 swift build
 swift test
 ```
+
+### macOS App 打包
+
+```bash
+# 构建 .app bundle（内置 FFmpeg + Whisper.cpp）
+./scripts/build-app.sh --release
+
+# 创建 DMG 安装包
+./scripts/package-dmg.sh --release
+```
+
+生成产物：
+- `.build/release/VlogPack.app` — 可直接运行的 macOS 应用
+- `.build/VlogPack-0.1.0-macOS.dmg` — 分发用 DMG 安装包
+
+### 外部工具配置
+
+| 工具 | 用途 | 内置状态 |
+|---|---|---|
+| FFmpeg | 视频处理、字幕烧录、导出 | ✅ 已内置 |
+| FFprobe | 媒体信息读取 | ✅ 已内置 |
+| whisper.cpp | 语音转文字 | ✅ 已内置（需下载模型） |
+
+### Whisper 模型
+
+语音转写功能需要下载 GGML 格式模型（首次使用时会提示下载）：
+
+| 模型 | 大小 | 精度 | 推荐场景 |
+|---|---|---|---|
+| tiny | 75 MB | ★☆☆ | 快速预览 |
+| base | 142 MB | ★★☆ | 日常使用（推荐） |
+| small | 466 MB | ★★★ | 高精度转写 |
+| medium | 1.4 GB | ★★★★ | 专业级 |
+| large-v3 | 3.0 GB | ★★★★★ | 最高精度 |
+
+模型存储在 `~/.vlogpack/whisper-models/`，可在设置页管理。
 
 ## 版本
 

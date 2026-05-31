@@ -13,10 +13,20 @@ final class AppState {
     let recentProjects = RecentProjectStore()
     /// 项目服务
     let projectService = ProjectService()
+    /// 设置服务
+    let setupService = SetupService()
+
+    /// 是否需要显示设置向导
+    var needsSetup: Bool = false
 
     /// 是否已打开项目
     var hasOpenProject: Bool {
         currentProject != nil && currentProjectRoot != nil
+    }
+
+    /// 初始化：检查是否需要设置向导
+    init() {
+        self.needsSetup = setupService.needsSetup
     }
 
     /// 打开项目
@@ -56,5 +66,17 @@ final class AppState {
     func closeProject() {
         currentProject = nil
         currentProjectRoot = nil
+    }
+
+    /// 跳过设置
+    func skipSetup() {
+        setupService.markSetupComplete()
+        needsSetup = false
+    }
+
+    /// 完成设置
+    func completeSetup() {
+        setupService.markSetupComplete()
+        needsSetup = false
     }
 }

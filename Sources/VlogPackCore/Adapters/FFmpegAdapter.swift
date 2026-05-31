@@ -23,11 +23,33 @@ public final class FFmpegAdapter: @unchecked Sendable {
     public let ffprobePath: String
 
     public init(
-        ffmpegPath: String = "/opt/homebrew/bin/ffmpeg",
-        ffprobePath: String = "/opt/homebrew/bin/ffprobe"
+        ffmpegPath: String? = nil,
+        ffprobePath: String? = nil
     ) {
-        self.ffmpegPath = ffmpegPath
-        self.ffprobePath = ffprobePath
+        self.ffmpegPath = ffmpegPath ?? Self.resolvePath("ffmpeg", fallback: "/opt/homebrew/bin/ffmpeg")
+        self.ffprobePath = ffprobePath ?? Self.resolvePath("ffprobe", fallback: "/opt/homebrew/bin/ffprobe")
+    }
+
+    /// 解析二进制路径：Bundle 内置 > MacOS 目录 > 环境变量 > fallback
+    private static func resolvePath(_ name: String, fallback: String) -> String {
+        // 1. App Bundle Resources
+        if let bundlePath = Bundle.main.path(forResource: name, ofType: nil) {
+            return bundlePath
+        }
+        // 2. 同一 MacOS 目录 (打包后 ffmpeg 和主程序同级)
+        if let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path {
+            let candidate = execDir + "/" + name
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
+        }
+        // 3. 环境变量
+        let envKey = name.uppercased() + "_PATH"
+        if let envPath = ProcessInfo.processInfo.environment[envKey], !envPath.isEmpty {
+            return envPath
+        }
+        // 4. Homebrew fallback
+        return fallback
     }
 
     // MARK: - 环境检查

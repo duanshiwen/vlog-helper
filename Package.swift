@@ -24,11 +24,12 @@ let package = Package(
                 .process("Resources")
             ]
         ),
-        // SwiftUI app shell
+        // SwiftUI app shell — excludes Resources (Info.plist/entitlements handled by build script)
         .executableTarget(
             name: "VlogPackApp",
             dependencies: ["VlogPackCore"],
-            path: "Sources/VlogPackApp"
+            path: "Sources/VlogPackApp",
+            exclude: ["Resources"]
         ),
         // Core tests
         .testTarget(
