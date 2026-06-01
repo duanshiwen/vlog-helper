@@ -173,7 +173,13 @@ public final class TimelineService: @unchecked Sendable {
         guard let (trackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
             throw TimelineServiceError.clipNotFound(id: clipId)
         }
-        project.timeline.tracks[trackIndex].clips[clipIndex].startTime = max(0, startTime)
+        let desiredStart = max(0, startTime)
+        project.timeline.tracks[trackIndex].clips[clipIndex].startTime = nonOverlappingStartTime(
+            desiredStart,
+            clipIndex: clipIndex,
+            trackIndex: trackIndex,
+            project: project
+        )
         reindexClips(trackIndex: trackIndex, project: &project)
     }
 
@@ -283,6 +289,48 @@ public final class TimelineService: @unchecked Sendable {
 
     private func nextStartTime(forTrackIndex trackIndex: Int, project: VlogProject) -> Double {
         project.timeline.tracks[trackIndex].clips.map(\.endTime).max() ?? 0
+    }
+
+    /// 视频轨不允许片段重叠：将目标 startTime 夹在前一个片段结束和后一个片段开始之间。
+    /// 非视频轨暂时允许重叠，便于后续做音频/字幕叠加。
+    private func nonOverlappingStartTime(
+        _ desiredStart: Double,
+        clipIndex: Int,
+        trackIndex: Int,
+        project: VlogProject
+    ) -> Double {
+        let track = project.timeline.tracks[trackIndex]
+        guard track.type == .video else { return desiredStart }
+
+        let clip = track.clips[clipIndex]
+        let duration = clip.duration
+        guard duration > 0 else { return desiredStart }
+
+        let others = track.clips
+            .enumerated()
+            .filter { $0.offset != clipIndex }
+            .map(\.element)
+            .sorted { $0.startTime < $1.startTime }
+
+        let previousEnd = others
+            .filter { $0.startTime <= desiredStart }
+            .map(\.endTime)
+            .max() ?? 0
+
+        let nextStart = others
+            .filter { $0.startTime >= desiredStart }
+            .map(\.startTime)
+            .min()
+
+        if let nextStart, nextStart - previousEnd < duration {
+            return clip.startTime
+        }
+
+        var clamped = max(desiredStart, previousEnd)
+        if let nextStart {
+            clamped = min(clamped, nextStart - duration)
+        }
+        return max(0, clamped)
     }
 
     /// 生成时间线导出计划（视频轨道）

@@ -96,6 +96,36 @@ struct TimelineServiceTests {
         #expect(project.timeline.sortedClips[1].mediaItemId == "media-1")
     }
 
+    @Test("视频轨片段不能重叠：向前拖动会吸附到前一个片段末尾")
+    func testVideoClipCannotOverlapPreviousClip() throws {
+        var project = makeProjectWithMedia()
+        let item2 = MediaItem(id: "media-2", type: .video, originalFileName: "c2.mov", projectRelativePath: "media/original/clip_002.mov", duration: 10)
+        project.mediaItems.append(item2)
+
+        _ = try service.addClip(mediaItemId: "media-1", project: &project)
+        let clip2 = try service.addClip(mediaItemId: "media-2", project: &project)
+
+        try service.setStartTime(clipId: clip2.id, startTime: 20, project: &project)
+
+        let updated = project.timeline.clip(byId: clip2.id)!
+        #expect(updated.startTime == 30)
+    }
+
+    @Test("视频轨片段不能重叠：向后拖动会停在后一个片段前")
+    func testVideoClipCannotOverlapNextClip() throws {
+        var project = makeProjectWithMedia()
+        let item2 = MediaItem(id: "media-2", type: .video, originalFileName: "c2.mov", projectRelativePath: "media/original/clip_002.mov", duration: 10)
+        project.mediaItems.append(item2)
+
+        let clip1 = try service.addClip(mediaItemId: "media-1", project: &project)
+        _ = try service.addClip(mediaItemId: "media-2", project: &project)
+
+        try service.setStartTime(clipId: clip1.id, startTime: 20, project: &project)
+
+        let updated = project.timeline.clip(byId: clip1.id)!
+        #expect(updated.startTime == 0)
+    }
+
     @Test("添加字幕轨道")
     func testAddSubtitleTrack() {
         var project = makeProjectWithMedia()
