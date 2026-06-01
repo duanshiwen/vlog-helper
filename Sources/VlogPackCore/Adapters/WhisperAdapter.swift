@@ -234,11 +234,12 @@ public final class WhisperAdapter: @unchecked Sendable {
                 return path
             }
         }
-        // 开发环境: 项目根/scripts/t2s.py
+        // 开发环境: 项目根/scripts/t2s.py (#filePath 是 Sources/VlogPackCore/Adapters/X.swift，需上溯4层)
         let devPath = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+            .deletingLastPathComponent()  // Adapters
+            .deletingLastPathComponent()  // VlogPackCore
+            .deletingLastPathComponent()  // Sources
+            .deletingLastPathComponent()  // project root
             .appendingPathComponent("scripts/t2s.py").path
         if FileManager.default.fileExists(atPath: devPath) {
             return devPath
@@ -247,10 +248,18 @@ public final class WhisperAdapter: @unchecked Sendable {
     }
 
     private func findPython() -> String? {
+        // 优先用 venv 的 python（含 opencc），再找系统 python
         let candidates = [
+            Bundle.main.bundlePath + "/Contents/MacOS/t2s-venv/bin/python3",
+            // 开发环境 venv
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent(".venv/bin/python3").path,
             "/opt/homebrew/bin/python3",
             "/usr/bin/python3",
-            Bundle.main.bundlePath + "/Contents/MacOS/t2s-venv/bin/python3",
         ]
         for path in candidates {
             if FileManager.default.fileExists(atPath: path) {

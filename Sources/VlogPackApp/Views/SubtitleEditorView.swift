@@ -33,6 +33,12 @@ struct SubtitleEditorView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
 
+                if !segments.isEmpty {
+                    Text("\(segments.count) 条字幕")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Spacer()
 
                 Button("导出 SRT") { exportSRT() }
@@ -46,10 +52,14 @@ struct SubtitleEditorView: View {
             .padding(8)
 
             if let error = transcriptionError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 8)
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                .padding(.horizontal, 8)
             }
             if let msg = exportMessage {
                 HStack(spacing: 4) {
