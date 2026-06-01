@@ -31,7 +31,7 @@ struct WorkspaceView: View {
 
                 // 底部：时间线
                 TimelineView()
-                    .frame(minHeight: 120, idealHeight: 180, maxHeight: 360)
+                    .frame(minHeight: 160, idealHeight: 240, maxHeight: 460)
             }
         }
     }

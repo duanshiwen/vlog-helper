@@ -46,17 +46,22 @@ struct SubtitleEditorView: View {
 
                 Spacer()
 
-                Button(showBatchEditor ? "收起批量" : "批量修改") { showBatchEditor.toggle() }
-                    .controlSize(.small)
-                    .disabled(segments.isEmpty)
+                Button {
+                    showBatchEditor.toggle()
+                } label: {
+                    Label("批量修改", systemImage: showBatchEditor ? "chevron.up" : "text.badge.checkmark")
+                }
+                .controlSize(.small)
+                .disabled(segments.isEmpty)
 
-                Button("导出 SRT") { exportSRT() }
-                    .controlSize(.small)
-                    .disabled(segments.isEmpty)
-
-                Button("导出 ASS") { exportASS() }
-                    .controlSize(.small)
-                    .disabled(segments.isEmpty)
+                Menu {
+                    Button("导出 SRT") { exportSRT() }
+                    Button("导出 ASS") { exportASS() }
+                } label: {
+                    Label("导出", systemImage: "square.and.arrow.up")
+                }
+                .controlSize(.small)
+                .disabled(segments.isEmpty)
             }
             .padding(8)
 

@@ -27,16 +27,27 @@ struct TimelineView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 时间线标题栏
-            HStack {
-                Image(systemName: "timeline.selection")
-                    .foregroundStyle(.secondary)
-                Text("时间线")
-                    .font(.headline)
-                Spacer()
+            HStack(spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "timeline.selection")
+                        .foregroundStyle(.secondary)
+                    Text("时间线")
+                        .font(.headline)
+                    Text(activeToolLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        .clipShape(Capsule())
+                }
 
-                Text("时间码 \(formatDuration(selectedClip?.startTime ?? 0))")
+                Spacer(minLength: 12)
+
+                Text("\(formatDuration(playheadTime)) / \(formatDuration(totalDuration))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .frame(minWidth: 112, alignment: .trailing)
 
                 Toggle(isOn: $magneticSnap) {
                     Image(systemName: "magnet")
@@ -45,52 +56,45 @@ struct TimelineView: View {
                 .controlSize(.mini)
                 .help("时间线磁性吸附")
 
-                Text("播放头 \(formatDuration(playheadTime))")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 4) {
-                    Button {
-                        zoom = max(0.5, zoom - 0.25)
-                    } label: {
+                HStack(spacing: 6) {
+                    Button { zoom = max(0.5, zoom - 0.25) } label: {
                         Image(systemName: "minus.magnifyingglass")
                     }
                     .buttonStyle(.borderless)
-                    .controlSize(.mini)
+                    .controlSize(.small)
                     .help("缩小时间线")
 
                     Slider(value: $zoom, in: 0.5...4.0)
-                        .frame(width: 100)
+                        .frame(width: 120)
 
-                    Button {
-                        zoom = min(4.0, zoom + 0.25)
-                    } label: {
+                    Button { zoom = min(4.0, zoom + 0.25) } label: {
                         Image(systemName: "plus.magnifyingglass")
                     }
                     .buttonStyle(.borderless)
-                    .controlSize(.mini)
+                    .controlSize(.small)
                     .help("放大时间线")
 
                     Text("\(Int(zoom * 100))%")
                         .font(.caption.monospacedDigit())
-                        .frame(width: 42, alignment: .trailing)
+                        .frame(width: 44, alignment: .trailing)
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color(nsColor: .textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                Text(formatDuration(totalDuration))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
                 Menu {
                     Button("添加音频轨道") { addTrack(.audio) }
                     Button("添加字幕轨道") { addTrack(.subtitle) }
                 } label: {
-                    Image(systemName: "plus.rectangle.on.rectangle")
-                        .font(.caption)
+                    Label("添加轨道", systemImage: "plus.rectangle.on.rectangle")
+                        .labelStyle(.iconOnly)
                 }
                 .menuStyle(.borderlessButton)
-                .frame(width: 24)
+                .help("添加轨道")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
 
             Divider()
 
@@ -196,45 +200,32 @@ struct TimelineView: View {
     // MARK: - 工具栏
 
     private var timelineToolRail: some View {
-        VStack(spacing: 8) {
-            Button {
-                activeTool = .select
-            } label: {
-                Image(systemName: "cursorarrow")
-                    .frame(width: 28, height: 28)
-                    .background(activeTool == .select ? Color.accentColor.opacity(0.18) : Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .help("选择/移动工具")
-
-            Button {
-                activeTool = .shuttle
-            } label: {
-                Image(systemName: "timeline.selection")
-                    .frame(width: 28, height: 28)
-                    .background(activeTool == .shuttle ? Color.accentColor.opacity(0.18) : Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .help("飞梭/播放头工具：点击或拖动设置时间位置")
-
-            Button {
-                activeTool = .blade
-            } label: {
-                Image(systemName: "scissors")
-                    .frame(width: 28, height: 28)
-                    .background(activeTool == .blade ? Color.accentColor.opacity(0.18) : Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .help("自由切分工具：点击片段上的位置进行切分")
-
+        VStack(spacing: 6) {
+            toolButton(.select, icon: "cursorarrow", help: "选择/移动工具")
+            toolButton(.shuttle, icon: "timeline.selection", help: "飞梭/播放头工具：点击或拖动设置时间位置")
+            toolButton(.blade, icon: "scissors", help: "自由切分工具：点击片段上的位置进行切分")
             Spacer()
         }
         .padding(.vertical, 8)
-        .frame(width: 44)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .frame(width: 48)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+    }
+
+    private func toolButton(_ tool: TimelineTool, icon: String, help: String) -> some View {
+        Button { activeTool = tool } label: {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: activeTool == tool ? .semibold : .regular))
+                .foregroundStyle(activeTool == tool ? Color.accentColor : Color.secondary)
+                .frame(width: 32, height: 32)
+                .background(activeTool == tool ? Color.accentColor.opacity(0.16) : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(activeTool == tool ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     // MARK: - 空状态
@@ -274,6 +265,14 @@ struct TimelineView: View {
     private var selectedClip: TimelineClip? {
         guard let id = appState.selectedClipId else { return nil }
         return appState.currentProject?.timeline.clip(byId: id)
+    }
+
+    private var activeToolLabel: String {
+        switch activeTool {
+        case .select: return "选择"
+        case .shuttle: return "飞梭"
+        case .blade: return "剪刀"
+        }
     }
 
     private var timelineCanvasWidth: CGFloat {
@@ -782,7 +781,7 @@ struct ClipView: View {
                 Text("\(formatTime(clip.inPoint)) — \(formatTime(clip.outPoint))")
                     .font(.system(size: 8).monospacedDigit())
                     .foregroundStyle(.secondary)
-                if trackType != .subtitle, let onSetVolume {
+                if isSelected, trackType != .subtitle, let onSetVolume {
                     Slider(
                         value: Binding(
                             get: { clip.volume },
