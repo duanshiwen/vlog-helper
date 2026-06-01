@@ -20,6 +20,8 @@ final class AppState {
     var needsSetup: Bool = false
     /// 时间线中选中的片段 ID
     var selectedClipId: String?
+    /// 全局时间线播放头位置（秒），用于时间线与预览同步
+    var timelinePlayheadTime: Double = 0
 
     /// 是否已打开项目
     var hasOpenProject: Bool {
@@ -68,6 +70,8 @@ final class AppState {
     func closeProject() {
         currentProject = nil
         currentProjectRoot = nil
+        selectedClipId = nil
+        timelinePlayheadTime = 0
     }
 
     /// 跳过设置

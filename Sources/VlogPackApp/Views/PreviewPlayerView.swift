@@ -124,20 +124,18 @@ struct PreviewPlayerView: View {
                     .buttonStyle(.borderless)
 
                     Slider(
-                        value: $relativeTime,
-                        in: 0...max(currentClip?.duration ?? 1, 0.1)
+                        value: Binding(
+                            get: { appState.timelinePlayheadTime },
+                            set: { appState.timelinePlayheadTime = $0 }
+                        ),
+                        in: 0...max(timelineDuration, 0.1)
                     ) { editing in
-                        if !editing, let clip = currentClip {
-                            let absoluteTime = clip.inPoint + relativeTime
-                            let time = CMTime(seconds: absoluteTime, preferredTimescale: 600)
-                            player?.seek(to: time)
-                            currentSubtitleText = findCurrentSubtitle(
-                                timelineTime: timelineTime(for: clip, relativeTime: relativeTime)
-                            )
+                        if !editing {
+                            seekToTimelineTime(appState.timelinePlayheadTime)
                         }
                     }
 
-                    Text(formatTime(relativeTime) + " / " + formatTime(currentClip?.duration ?? 0))
+                    Text(formatTime(appState.timelinePlayheadTime) + " / " + formatTime(timelineDuration))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 100)
@@ -148,7 +146,12 @@ struct PreviewPlayerView: View {
             }
         }
         .onChange(of: appState.selectedClipId) { _, _ in
-            reloadIfNeeded()
+            seekToTimelineTime(appState.timelinePlayheadTime)
+        }
+        .onChange(of: appState.timelinePlayheadTime) { _, newValue in
+            if !isPlaying {
+                seekToTimelineTime(newValue)
+            }
         }
         .onChange(of: clipCount) { _, _ in
             reloadIfNeeded()
@@ -164,12 +167,16 @@ struct PreviewPlayerView: View {
     // MARK: - 当前片段
 
     private var currentClip: TimelineClip? {
-        guard let project = appState.currentProject else { return nil }
-        if let id = appState.selectedClipId,
-           let clip = project.timeline.clip(byId: id) {
-            return clip
-        }
-        return project.timeline.videoTrack?.sortedClips.first
+        clip(atTimelineTime: appState.timelinePlayheadTime)
+    }
+
+    private var timelineDuration: Double {
+        appState.currentProject?.timeline.totalDuration ?? 0
+    }
+
+    private func clip(atTimelineTime time: Double) -> TimelineClip? {
+        guard let clips = appState.currentProject?.timeline.videoTrack?.sortedClips else { return nil }
+        return clips.first { time >= $0.startTime && time < $0.endTime }
     }
 
     private var clipCount: Int {
@@ -178,7 +185,7 @@ struct PreviewPlayerView: View {
 
     private var clipTrimKey: String {
         guard let clip = currentClip else { return "" }
-        return "\(clip.id)_\(clip.inPoint)_\(clip.outPoint)"
+        return "\(clip.id)_\(clip.inPoint)_\(clip.outPoint)_\(clip.startTime)"
     }
 
     // MARK: - 字幕
@@ -243,16 +250,15 @@ struct PreviewPlayerView: View {
         let url = root.appendingPathComponent(media.projectRelativePath)
         let avPlayer = AVPlayer(url: url)
 
-        if clip.inPoint > 0 {
-            let startTime = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
-            avPlayer.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        }
+        let rel = max(0, min(appState.timelinePlayheadTime - clip.startTime, clip.duration))
+        let sourceTime = clip.inPoint + rel
+        avPlayer.seek(to: CMTime(seconds: sourceTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
 
         self.player = avPlayer
-        self.relativeTime = 0
+        self.relativeTime = rel
         self.isPlaying = false
         self.loadedClipKey = clipTrimKey
-        self.currentSubtitleText = ""
+        self.currentSubtitleText = findCurrentSubtitle(timelineTime: appState.timelinePlayheadTime)
 
         addPeriodicObserver()
 
@@ -262,19 +268,42 @@ struct PreviewPlayerView: View {
         }
     }
 
+    private func seekToTimelineTime(_ timelineTime: Double) {
+        guard let clip = clip(atTimelineTime: timelineTime) else {
+            player?.pause()
+            player = nil
+            isPlaying = false
+            relativeTime = 0
+            currentSubtitleText = findCurrentSubtitle(timelineTime: timelineTime)
+            loadedClipKey = ""
+            return
+        }
+
+        if loadedClipKey != "\(clip.id)_\(clip.inPoint)_\(clip.outPoint)_\(clip.startTime)" {
+            forceReload()
+            return
+        }
+
+        let rel = max(0, min(timelineTime - clip.startTime, clip.duration))
+        relativeTime = rel
+        player?.seek(
+            to: CMTime(seconds: clip.inPoint + rel, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+        currentSubtitleText = findCurrentSubtitle(timelineTime: timelineTime)
+    }
+
     // MARK: - 播放控制
 
     private func togglePlay() {
-        guard let player, let clip = currentClip else { return }
+        if player == nil {
+            seekToTimelineTime(appState.timelinePlayheadTime)
+        }
+        guard let player else { return }
         if isPlaying {
             player.pause()
         } else {
-            let absTime = clip.inPoint + relativeTime
-            if absTime >= clip.outPoint - 0.3 {
-                let start = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
-                player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
-                relativeTime = 0
-            }
             player.play()
         }
         isPlaying.toggle()
@@ -294,17 +323,24 @@ struct PreviewPlayerView: View {
                 let rel = max(0, abs - clip.inPoint)
                 relativeTime = min(rel, clip.duration)
 
-                // 更新字幕：字幕轨使用的是时间线时间，而不是源视频绝对时间
-                currentSubtitleText = findCurrentSubtitle(timelineTime: timelineTime(for: clip, relativeTime: rel))
+                let timelineTime = clip.startTime + rel
+                appState.timelinePlayheadTime = min(timelineTime, timelineDuration)
 
-                // 超过出点自动暂停
+                // 更新字幕：字幕轨使用的是时间线时间，而不是源视频绝对时间
+                currentSubtitleText = findCurrentSubtitle(timelineTime: appState.timelinePlayheadTime)
+
+                // 超过当前源片段出点后，切到时间线上的下一个片段；没有下一个片段则暂停在末尾。
                 if abs >= clip.outPoint - 0.05 {
-                    player.pause()
-                    isPlaying = false
-                    let start = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
-                    player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
-                    relativeTime = 0
-                    currentSubtitleText = ""
+                    let nextTime = clip.endTime
+                    appState.timelinePlayheadTime = nextTime
+                    if self.clip(atTimelineTime: nextTime) != nil {
+                        forceReload()
+                        if isPlaying { self.player?.play() }
+                    } else {
+                        player.pause()
+                        isPlaying = false
+                        currentSubtitleText = findCurrentSubtitle(timelineTime: nextTime)
+                    }
                 }
             }
         }

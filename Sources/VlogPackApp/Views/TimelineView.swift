@@ -11,7 +11,6 @@ struct TimelineView: View {
     @State private var trimValue: String = ""
     @State private var zoom: Double = 1.0
     @State private var activeTool: TimelineTool = .select
-    @State private var playheadTime: Double = 0
     @State private var magneticSnap: Bool = true
 
     enum TimelineTool {
@@ -44,7 +43,7 @@ struct TimelineView: View {
 
                 Spacer(minLength: 12)
 
-                Text("\(formatDuration(playheadTime)) / \(formatDuration(totalDuration))")
+                Text("\(formatDuration(appState.timelinePlayheadTime)) / \(formatDuration(totalDuration))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 112, alignment: .trailing)
@@ -112,8 +111,8 @@ struct TimelineView: View {
                                     duration: max(totalDuration, 1),
                                     pixelsPerSecond: pixelsPerSecond,
                                     width: timelineCanvasWidth,
-                                    playheadTime: playheadTime,
-                                    onSetPlayhead: { playheadTime = snappedTime($0) }
+                                    playheadTime: appState.timelinePlayheadTime,
+                                    onSetPlayhead: { appState.timelinePlayheadTime = snappedTime($0) }
                                 )
                                 .padding(.leading, 116)
 
@@ -123,6 +122,9 @@ struct TimelineView: View {
                                 selectedClipId: appState.selectedClipId,
                                 onSelectClip: { clipId in
                                     appState.selectedClipId = clipId
+                                    if let clip = appState.currentProject?.timeline.clip(byId: clipId) {
+                                        appState.timelinePlayheadTime = clip.startTime
+                                    }
                                 },
                                 onRemoveClip: { clip in
                                     removeClip(clip)
@@ -166,8 +168,8 @@ struct TimelineView: View {
                                         },
                                         activeTool: activeTool,
                                         magneticSnap: magneticSnap,
-                                        playheadTime: playheadTime,
-                                        onSetPlayhead: { playheadTime = snappedTime($0) }
+                                        playheadTime: appState.timelinePlayheadTime,
+                                        onSetPlayhead: { appState.timelinePlayheadTime = snappedTime($0) }
                                     )
                                 }
                             }
