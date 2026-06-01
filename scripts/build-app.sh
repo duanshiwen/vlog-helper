@@ -90,9 +90,10 @@ else
 fi
 
 # Copy entitlements (for codesign)
-ENTITLEMENTS_SRC="$PROJECT_DIR/Sources/VlogPackApp/Resources/ VlogPack.entitlements"
+ENTITLEMENTS_SRC="$PROJECT_DIR/Sources/VlogPackApp/Resources/VlogPack.entitlements"
 ENTITLEMENTS_PATH=""
 if [ -f "$ENTITLEMENTS_SRC" ]; then
+    mkdir -p "$APP_DIR/Contents/Resources"
     ENTITLEMENTS_PATH="$APP_DIR/Contents/Resources/VlogPack.entitlements"
     cp "$ENTITLEMENTS_SRC" "$ENTITLEMENTS_PATH"
 fi
