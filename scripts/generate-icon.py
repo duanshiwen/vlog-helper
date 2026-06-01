@@ -19,10 +19,10 @@ def create():
 
     # ── VP 文字 ────────────────────────────────────
     try:
-        font = ImageFont.truetype("/System/Library/Fonts/SFNSRounded.ttf", 520)
+        font = ImageFont.truetype("/System/Library/Fonts/SFNSRounded.ttf", 640)
     except:
         try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 520)
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 640)
         except:
             font = ImageFont.load_default()
 
@@ -31,7 +31,7 @@ def create():
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     tx = (SIZE - tw) // 2 - bbox[0]
     ty = (SIZE - th) // 2 - bbox[1] + 10
-    draw.text((tx, ty), text, fill=(40, 40, 50, 140), font=font)
+    draw.text((tx, ty), text, fill=(40, 40, 50), font=font)
 
     # ── 半透明播放三角（覆盖在文字中间，YouTube 风格）──
     cx, cy = SIZE // 2, SIZE // 2
@@ -47,6 +47,11 @@ def create():
     ]
     # 半透明白色三角
     draw.polygon(tri_points, fill=(255, 255, 255, 140))
+
+    # 整体半透明（alpha 乘 0.75）
+    alpha = img.split()[3]
+    alpha = alpha.point(lambda x: int(x * 0.75))
+    img.putalpha(alpha)
 
     return img
 
