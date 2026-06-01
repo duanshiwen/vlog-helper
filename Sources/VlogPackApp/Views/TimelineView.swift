@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VlogPackCore
 
 /// 多轨时间线视图
@@ -78,6 +79,9 @@ struct TimelineView: View {
                                 },
                                 onRemoveTrack: {
                                     removeTrack(track: track)
+                                },
+                                onMoveClip: { clipId, targetTrackId, targetIndex in
+                                    moveClip(clipId: clipId, toTrack: targetTrackId, index: targetIndex)
                                 }
                             )
                         }
@@ -164,12 +168,28 @@ struct TimelineView: View {
     // MARK: - 片段操作
 
     private func removeClip(_ clip: TimelineClip) {
-        guard appState.currentProject != nil else { return }
+        guard var project = appState.currentProject else { return }
         if appState.selectedClipId == clip.id {
             appState.selectedClipId = nil
         }
-        timelineService.removeClip(clipId: clip.id, project: &appState.currentProject!)
+        timelineService.removeClip(clipId: clip.id, project: &project)
+        appState.currentProject = project
         try? appState.saveCurrentProject()
+    }
+
+    private func moveClip(clipId: String, toTrack targetTrackId: String, index targetIndex: Int) {
+        guard var project = appState.currentProject else { return }
+        do {
+            if project.timeline.track(containingClipId: clipId)?.id != targetTrackId {
+                try timelineService.moveClip(clipId: clipId, toTrack: targetTrackId, project: &project)
+            }
+            try timelineService.moveClip(clipId: clipId, to: targetIndex, project: &project)
+            appState.currentProject = project
+            appState.selectedClipId = clipId
+            try? appState.saveCurrentProject()
+        } catch {
+            // 暂不打断编辑流程；非法拖放直接忽略
+        }
     }
 
     // MARK: - Trim
@@ -247,6 +267,7 @@ struct TrackRowView: View {
     let onResetTrim: (TimelineClip) -> Void
     let onToggleMute: () -> Void
     let onRemoveTrack: () -> Void
+    let onMoveClip: (String, String, Int) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -282,13 +303,20 @@ struct TrackRowView: View {
                 } else {
                     ScrollView(.horizontal) {
                         HStack(spacing: 4) {
-                            ForEach(track.sortedClips) { clip in
+                            ForEach(Array(track.sortedClips.enumerated()), id: \.element.id) { index, clip in
                                 ClipView(
                                     clip: clip,
                                     trackType: track.type,
                                     isSelected: clip.id == selectedClipId
                                 )
                                 .onTapGesture { onSelectClip(clip.id) }
+                                .onDrag {
+                                    onSelectClip(clip.id)
+                                    return NSItemProvider(object: clip.id as NSString)
+                                }
+                                .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                                    handleDrop(providers: providers, targetIndex: index)
+                                }
                                 .contextMenu {
                                     if track.type == .video {
                                         Button("裁剪开头…") { onTrimClip(clip, .inPoint) }
@@ -306,6 +334,9 @@ struct TrackRowView: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
+                    .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                        handleDrop(providers: providers, targetIndex: track.sortedClips.count)
+                    }
                 }
 
                 // 轨道菜单
@@ -327,6 +358,19 @@ struct TrackRowView: View {
 
             Divider()
         }
+    }
+
+    private func handleDrop(providers: [NSItemProvider], targetIndex: Int) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else {
+            return false
+        }
+        provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let clipId = object as? String else { return }
+            DispatchQueue.main.async {
+                onMoveClip(clipId, track.id, targetIndex)
+            }
+        }
+        return true
     }
 
     private var trackColor: Color {

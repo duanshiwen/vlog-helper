@@ -10,7 +10,8 @@ struct PlayerView: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.player = player
-        view.controlsStyle = .inline
+        // 关闭 AVPlayerView 原生控制条，避免与下方自定义控制栏形成“双进度条”
+        view.controlsStyle = .none
         view.showsFullScreenToggleButton = false
         return view
     }
@@ -91,6 +92,9 @@ struct PreviewPlayerView: View {
                             let absoluteTime = clip.inPoint + relativeTime
                             let time = CMTime(seconds: absoluteTime, preferredTimescale: 600)
                             player?.seek(to: time)
+                            currentSubtitleText = findCurrentSubtitle(
+                                timelineTime: timelineTime(for: clip, relativeTime: relativeTime)
+                            )
                         }
                     }
 
@@ -140,18 +144,42 @@ struct PreviewPlayerView: View {
 
     // MARK: - 字幕
 
-    /// 根据当前播放时间查找匹配的字幕
-    private func findCurrentSubtitle(absoluteTime: Double) -> String {
-        guard let project = appState.currentProject,
-              let subtitleTrack = project.timeline.subtitleTrack else {
-            return ""
-        }
-        for clip in subtitleTrack.sortedClips {
-            if absoluteTime >= clip.inPoint && absoluteTime < clip.outPoint {
-                return clip.subtitleText ?? ""
+    /// 根据时间线时间查找匹配的字幕。
+    /// 字幕转写基于“剪辑后的连续时间线音频”，因此这里不能用源视频绝对时间。
+    private func findCurrentSubtitle(timelineTime: Double) -> String {
+        guard let project = appState.currentProject else { return "" }
+
+        // 优先使用多轨字幕 clip
+        if let subtitleTrack = project.timeline.subtitleTrack {
+            for clip in subtitleTrack.sortedClips {
+                if timelineTime >= clip.inPoint && timelineTime < clip.outPoint {
+                    return clip.subtitleText ?? ""
+                }
             }
         }
+
+        // 兼容：旧项目或尚未同步到字幕轨时，直接使用 SubtitleDocument
+        if let segments = project.subtitles?.segments {
+            for segment in segments {
+                if timelineTime >= segment.start && timelineTime < segment.end {
+                    return segment.text
+                }
+            }
+        }
+
         return ""
+    }
+
+    /// 当前 clip 内相对时间 → 全局时间线时间
+    private func timelineTime(for clip: TimelineClip, relativeTime: Double) -> Double {
+        guard let project = appState.currentProject,
+              let videoTrack = project.timeline.videoTrack else {
+            return relativeTime
+        }
+        let previousDuration = videoTrack.sortedClips
+            .prefix { $0.id != clip.id }
+            .reduce(0) { $0 + $1.duration }
+        return previousDuration + relativeTime
     }
 
     // MARK: - 加载
@@ -234,8 +262,8 @@ struct PreviewPlayerView: View {
                 let rel = max(0, abs - clip.inPoint)
                 relativeTime = min(rel, clip.duration)
 
-                // 更新字幕
-                currentSubtitleText = findCurrentSubtitle(absoluteTime: abs)
+                // 更新字幕：字幕轨使用的是时间线时间，而不是源视频绝对时间
+                currentSubtitleText = findCurrentSubtitle(timelineTime: timelineTime(for: clip, relativeTime: rel))
 
                 // 超过出点自动暂停
                 if abs >= clip.outPoint - 0.05 {

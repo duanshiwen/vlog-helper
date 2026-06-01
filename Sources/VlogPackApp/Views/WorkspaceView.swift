@@ -12,24 +12,27 @@ struct WorkspaceView: View {
 
             Divider()
 
-            // 主内容区
-            HSplitView {
-                // 左侧：素材库
-                MediaLibraryView()
-                    .frame(minWidth: 200, idealWidth: 260, maxWidth: 350)
+            // 主工作区：左右、上下均可拖动调整大小
+            VSplitView {
+                HSplitView {
+                    // 左侧：素材库
+                    MediaLibraryView()
+                        .frame(minWidth: 180, idealWidth: 260, maxWidth: .infinity)
 
-                // 中间：预览播放器
-                PreviewPlayerView()
-                    .frame(minWidth: 400, idealWidth: 600)
+                    // 中间：预览播放器
+                    PreviewPlayerView()
+                        .frame(minWidth: 320, idealWidth: 680, maxWidth: .infinity)
 
-                // 右侧：检查器
-                InspectorPanelView()
-                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
+                    // 右侧：检查器
+                    InspectorPanelView()
+                        .frame(minWidth: 260, idealWidth: 340, maxWidth: .infinity)
+                }
+                .frame(minHeight: 320, idealHeight: 520, maxHeight: .infinity)
+
+                // 底部：时间线
+                TimelineView()
+                    .frame(minHeight: 120, idealHeight: 180, maxHeight: 360)
             }
-
-            // 底部：时间线
-            TimelineView()
-                .frame(height: 140)
         }
     }
 }
