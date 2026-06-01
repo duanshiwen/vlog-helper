@@ -10,11 +10,11 @@ def create():
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # ── 背景：纯白圆角 ─────────────────────────────
+    # ── 背景：深色圆角 ─────────────────────────────
     draw.rounded_rectangle(
         [(0, 0), (SIZE - 1, SIZE - 1)],
         radius=228,
-        fill=(255, 255, 255),
+        fill=(40, 40, 50),
     )
 
     # ── VP 文字 ────────────────────────────────────
@@ -31,7 +31,7 @@ def create():
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     tx = (SIZE - tw) // 2 - bbox[0]
     ty = (SIZE - th) // 2 - bbox[1] + 10
-    draw.text((tx, ty), text, fill=(40, 40, 50), font=font)
+    draw.text((tx, ty), text, fill=(255, 255, 255, 180), font=font)
 
     # ── 半透明播放三角（覆盖在文字中间，YouTube 风格）──
     cx, cy = SIZE // 2, SIZE // 2
@@ -45,8 +45,8 @@ def create():
         (tri_cx - w // 3, tri_cy + h // 2),
         (tri_cx + w * 2 // 3, tri_cy),
     ]
-    # 半透明白色三角
-    draw.polygon(tri_points, fill=(255, 255, 255, 140))
+    # 半透明三角
+    draw.polygon(tri_points, fill=(255, 255, 255, 60))
 
     # 整体半透明（alpha 乘 0.75）
     alpha = img.split()[3]
