@@ -147,8 +147,7 @@ struct ModelRoundTripTests {
               "mediaItemId": "media-1",
               "inPoint": 0,
               "outPoint": 10,
-              "order": 0,
-              "trackId": ""
+              "order": 0
             }
           ]
         }
