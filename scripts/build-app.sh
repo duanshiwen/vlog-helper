@@ -71,8 +71,26 @@ else
     echo "⚠️  Info.plist not found at $PLIST_SRC"
 fi
 
+# Copy app icon
+ICON_SRC="$PROJECT_DIR/resources/AppIcon.icns"
+if [ -f "$ICON_SRC" ]; then
+    cp "$ICON_SRC" "$APP_DIR/Contents/Resources/AppIcon.icns"
+    echo "  ✓ App icon bundled"
+else
+    echo "  ⚠️  AppIcon.icns not found at $ICON_SRC"
+fi
+
+# Copy icon
+ICON_SRC="$PROJECT_DIR/Sources/VlogPackApp/AppIcon.icns"
+if [ -f "$ICON_SRC" ]; then
+    cp "$ICON_SRC" "$APP_DIR/Contents/Resources/AppIcon.icns"
+    echo "  ✓ AppIcon.icns bundled"
+else
+    echo "  ⚠ AppIcon.icns not found"
+fi
+
 # Copy entitlements (for codesign)
-ENTITLEMENTS_SRC="$PROJECT_DIR/Sources/VlogPackApp/Resources/VlogPack.entitlements"
+ENTITLEMENTS_SRC="$PROJECT_DIR/Sources/VlogPackApp/Resources/ VlogPack.entitlements"
 ENTITLEMENTS_PATH=""
 if [ -f "$ENTITLEMENTS_SRC" ]; then
     ENTITLEMENTS_PATH="$APP_DIR/Contents/Resources/VlogPack.entitlements"

@@ -24,6 +24,8 @@
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.video</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSCameraUsageDescription</key>
