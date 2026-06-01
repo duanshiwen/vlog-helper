@@ -87,10 +87,15 @@ public final class ExportService: @unchecked Sendable {
         outputPath: String,
         onProgress: @escaping @Sendable (Double) -> Void
     ) throws -> FFmpegResult {
-        let args = [
+        var args = [
             "-ss", String(format: "%.3f", segment.inPoint),
             "-i", segment.sourcePath,
-            "-to", String(format: "%.3f", segment.duration),
+            "-to", String(format: "%.3f", segment.duration)
+        ]
+        if abs(segment.volume - 1.0) > 0.001 {
+            args += ["-filter:a", "volume=\(String(format: "%.3f", segment.volume))"]
+        }
+        args += [
             "-c:v", "libx264",
             "-preset", "medium",
             "-crf", "23",
@@ -116,10 +121,15 @@ public final class ExportService: @unchecked Sendable {
         var trimmedPaths: [String] = []
         for (i, seg) in segments.enumerated() {
             let trimmedURL = tempDir.appendingPathComponent(String(format: "trimmed_%03d.mp4", i))
-            let args = [
+            var args = [
                 "-ss", String(format: "%.3f", seg.inPoint),
                 "-i", seg.sourcePath,
-                "-to", String(format: "%.3f", seg.duration),
+                "-to", String(format: "%.3f", seg.duration)
+            ]
+            if abs(seg.volume - 1.0) > 0.001 {
+                args += ["-filter:a", "volume=\(String(format: "%.3f", seg.volume))"]
+            }
+            args += [
                 "-c:v", "libx264",
                 "-preset", "medium",
                 "-crf", "23",

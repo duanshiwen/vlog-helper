@@ -24,6 +24,36 @@ public final class SubtitleService: @unchecked Sendable {
         guard let index = project.subtitles?.segments
             .firstIndex(where: { $0.id == segmentId }) else { return }
         project.subtitles?.segments[index].text = text
+        let segment = project.subtitles!.segments[index]
+        syncSubtitleTrackText(segment: segment, project: &project)
+    }
+
+    /// 批量替换字幕文本
+    public func replaceText(
+        find: String,
+        replaceWith replacement: String,
+        project: inout VlogProject
+    ) {
+        guard !find.isEmpty, var segments = project.subtitles?.segments else { return }
+        for index in segments.indices {
+            segments[index].text = segments[index].text.replacingOccurrences(of: find, with: replacement)
+        }
+        project.subtitles?.segments = segments
+        syncAllSubtitleTrackTexts(project: &project)
+    }
+
+    /// 批量为字幕添加前后缀
+    public func wrapText(
+        prefix: String,
+        suffix: String,
+        project: inout VlogProject
+    ) {
+        guard var segments = project.subtitles?.segments else { return }
+        for index in segments.indices {
+            segments[index].text = prefix + segments[index].text + suffix
+        }
+        project.subtitles?.segments = segments
+        syncAllSubtitleTrackTexts(project: &project)
     }
 
     /// 调整字幕开始时间
@@ -130,6 +160,25 @@ public final class SubtitleService: @unchecked Sendable {
     /// 点击字幕时返回对应的开始时间
     public func startTime(forSegment segmentId: String, project: VlogProject) -> Double? {
         project.subtitles?.segments.first { $0.id == segmentId }?.start
+    }
+
+    // MARK: - 时间线字幕同步
+
+    private func syncSubtitleTrackText(segment: SubtitleSegment, project: inout VlogProject) {
+        guard let trackIndex = project.timeline.tracks.firstIndex(where: { $0.type == .subtitle }) else { return }
+        for clipIndex in project.timeline.tracks[trackIndex].clips.indices {
+            let clip = project.timeline.tracks[trackIndex].clips[clipIndex]
+            if abs(clip.startTime - segment.start) < 0.01 && abs(clip.endTime - segment.end) < 0.01 {
+                project.timeline.tracks[trackIndex].clips[clipIndex].subtitleText = segment.text
+            }
+        }
+    }
+
+    private func syncAllSubtitleTrackTexts(project: inout VlogProject) {
+        guard let segments = project.subtitles?.segments else { return }
+        for segment in segments {
+            syncSubtitleTrackText(segment: segment, project: &project)
+        }
     }
 
     // MARK: - 导出格式

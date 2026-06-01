@@ -152,6 +152,18 @@ public final class TimelineService: @unchecked Sendable {
         reindexClips(trackIndex: targetTrackIndex, project: &project)
     }
 
+    /// 设置片段音量倍率
+    public func setVolume(
+        clipId: String,
+        volume: Double,
+        project: inout VlogProject
+    ) throws {
+        guard let (trackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
+            throw TimelineServiceError.clipNotFound(id: clipId)
+        }
+        project.timeline.tracks[trackIndex].clips[clipIndex].volume = min(max(volume, 0), 3)
+    }
+
     /// 设置片段在时间线上的起始时间
     public func setStartTime(
         clipId: String,
@@ -290,7 +302,8 @@ public final class TimelineService: @unchecked Sendable {
             segments.append(FFmpegExportSegment(
                 sourcePath: sourceURL.path,
                 inPoint: clip.inPoint,
-                outPoint: clip.outPoint
+                outPoint: clip.outPoint,
+                volume: clip.volume
             ))
         }
 
@@ -346,6 +359,14 @@ public struct FFmpegExportSegment: Sendable {
     public let sourcePath: String
     public let inPoint: Double
     public let outPoint: Double
+    public let volume: Double
+
+    public init(sourcePath: String, inPoint: Double, outPoint: Double, volume: Double = 1.0) {
+        self.sourcePath = sourcePath
+        self.inPoint = inPoint
+        self.outPoint = outPoint
+        self.volume = volume
+    }
 
     public var duration: Double {
         max(0, outPoint - inPoint)

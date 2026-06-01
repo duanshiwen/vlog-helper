@@ -13,6 +13,8 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
     public var outPoint: Double
     /// 在时间线上的起始时间（秒）
     public var startTime: Double
+    /// 音量倍率（1.0 = 100%）
+    public var volume: Double
     /// 排序序号
     public var order: Int
     /// 字幕文本（仅字幕轨道使用）
@@ -25,6 +27,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         inPoint: Double = 0,
         outPoint: Double = 0,
         startTime: Double = 0,
+        volume: Double = 1.0,
         order: Int = 0,
         subtitleText: String? = nil
     ) {
@@ -34,6 +37,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         self.inPoint = inPoint
         self.outPoint = outPoint
         self.startTime = startTime
+        self.volume = volume
         self.order = order
         self.subtitleText = subtitleText
     }
@@ -47,6 +51,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         case inPoint
         case outPoint
         case startTime
+        case volume
         case order
         case subtitleText
     }
@@ -59,6 +64,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         inPoint = try container.decodeIfPresent(Double.self, forKey: .inPoint) ?? 0
         outPoint = try container.decodeIfPresent(Double.self, forKey: .outPoint) ?? 0
         startTime = try container.decodeIfPresent(Double.self, forKey: .startTime) ?? 0
+        volume = try container.decodeIfPresent(Double.self, forKey: .volume) ?? 1.0
         order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
         subtitleText = try container.decodeIfPresent(String.self, forKey: .subtitleText)
     }
@@ -71,6 +77,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         try container.encode(inPoint, forKey: .inPoint)
         try container.encode(outPoint, forKey: .outPoint)
         try container.encode(startTime, forKey: .startTime)
+        try container.encode(volume, forKey: .volume)
         try container.encode(order, forKey: .order)
         try container.encodeIfPresent(subtitleText, forKey: .subtitleText)
     }

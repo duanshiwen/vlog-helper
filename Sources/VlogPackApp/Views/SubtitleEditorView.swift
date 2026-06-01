@@ -11,6 +11,11 @@ struct SubtitleEditorView: View {
     @State private var isTranscribing = false
     @State private var transcriptionError: String?
     @State private var exportMessage: String?
+    @State private var showBatchEditor = false
+    @State private var batchFind = ""
+    @State private var batchReplace = ""
+    @State private var batchPrefix = ""
+    @State private var batchSuffix = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,6 +46,10 @@ struct SubtitleEditorView: View {
 
                 Spacer()
 
+                Button(showBatchEditor ? "收起批量" : "批量修改") { showBatchEditor.toggle() }
+                    .controlSize(.small)
+                    .disabled(segments.isEmpty)
+
                 Button("导出 SRT") { exportSRT() }
                     .controlSize(.small)
                     .disabled(segments.isEmpty)
@@ -70,6 +79,12 @@ struct SubtitleEditorView: View {
                 }
                 .padding(.horizontal, 8)
                 .transition(.opacity)
+            }
+
+            if showBatchEditor {
+                batchEditor
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
             }
 
             // 搜索
@@ -139,6 +154,49 @@ struct SubtitleEditorView: View {
             Divider()
             SubtitleStyleEditor()
         }
+    }
+
+    // MARK: - 批量修改
+
+    private var batchEditor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("查找", text: $batchFind)
+                    .textFieldStyle(.roundedBorder)
+                TextField("替换为", text: $batchReplace)
+                    .textFieldStyle(.roundedBorder)
+                Button("全部替换") { applyBatchReplace() }
+                    .disabled(batchFind.isEmpty)
+            }
+            HStack {
+                TextField("统一前缀", text: $batchPrefix)
+                    .textFieldStyle(.roundedBorder)
+                TextField("统一后缀", text: $batchSuffix)
+                    .textFieldStyle(.roundedBorder)
+                Button("添加前后缀") { applyBatchWrap() }
+                    .disabled(batchPrefix.isEmpty && batchSuffix.isEmpty)
+            }
+        }
+        .font(.caption)
+        .padding(8)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func applyBatchReplace() {
+        guard var p = appState.currentProject else { return }
+        subtitleService.replaceText(find: batchFind, replaceWith: batchReplace, project: &p)
+        appState.currentProject = p
+        try? appState.saveCurrentProject()
+        exportMessage = "已完成批量替换"
+    }
+
+    private func applyBatchWrap() {
+        guard var p = appState.currentProject else { return }
+        subtitleService.wrapText(prefix: batchPrefix, suffix: batchSuffix, project: &p)
+        appState.currentProject = p
+        try? appState.saveCurrentProject()
+        exportMessage = "已完成批量添加前后缀"
     }
 
     // MARK: - Helpers

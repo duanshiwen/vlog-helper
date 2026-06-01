@@ -11,9 +11,12 @@ struct TimelineView: View {
     @State private var trimValue: String = ""
     @State private var zoom: Double = 1.0
     @State private var activeTool: TimelineTool = .select
+    @State private var playheadTime: Double = 0
+    @State private var magneticSnap: Bool = true
 
     enum TimelineTool {
         case select
+        case shuttle
         case blade
     }
 
@@ -32,6 +35,17 @@ struct TimelineView: View {
                 Spacer()
 
                 Text("时间码 \(formatDuration(selectedClip?.startTime ?? 0))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Toggle(isOn: $magneticSnap) {
+                    Image(systemName: "magnet")
+                }
+                .toggleStyle(.button)
+                .controlSize(.mini)
+                .help("时间线磁性吸附")
+
+                Text("播放头 \(formatDuration(playheadTime))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
 
@@ -76,7 +90,9 @@ struct TimelineView: View {
                                 TimelineRulerView(
                                     duration: max(totalDuration, 1),
                                     pixelsPerSecond: pixelsPerSecond,
-                                    width: timelineCanvasWidth
+                                    width: timelineCanvasWidth,
+                                    playheadTime: playheadTime,
+                                    onSetPlayhead: { playheadTime = snappedTime($0) }
                                 )
                                 .padding(.leading, 116)
 
@@ -121,10 +137,16 @@ struct TimelineView: View {
                                     onSetStartTime: { clipId, startTime in
                                         setClipStartTime(clipId: clipId, startTime: startTime)
                                     },
-                                        onSplitClip: { clipId, relativeTime in
+                                    onSetVolume: { clipId, volume in
+                                        setClipVolume(clipId: clipId, volume: volume)
+                                    },
+                                            onSplitClip: { clipId, relativeTime in
                                             splitClip(clipId: clipId, at: relativeTime)
                                         },
-                                        activeTool: activeTool
+                                        activeTool: activeTool,
+                                        magneticSnap: magneticSnap,
+                                        playheadTime: playheadTime,
+                                        onSetPlayhead: { playheadTime = snappedTime($0) }
                                     )
                                 }
                             }
@@ -168,6 +190,17 @@ struct TimelineView: View {
             }
             .buttonStyle(.plain)
             .help("选择/移动工具")
+
+            Button {
+                activeTool = .shuttle
+            } label: {
+                Image(systemName: "timeline.selection")
+                    .frame(width: 28, height: 28)
+                    .background(activeTool == .shuttle ? Color.accentColor.opacity(0.18) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help("飞梭/播放头工具：点击或拖动设置时间位置")
 
             Button {
                 activeTool = .blade
@@ -234,6 +267,22 @@ struct TimelineView: View {
         appState.currentProject?.mediaItems.first { $0.id == clip.mediaItemId }
     }
 
+    private func snappedTime(_ rawTime: Double, excludingClipId: String? = nil) -> Double {
+        let clamped = max(0, rawTime)
+        guard magneticSnap, let project = appState.currentProject else { return clamped }
+        var candidates: [Double] = [0, clamped.rounded()]
+        for track in project.timeline.tracks {
+            for clip in track.clips where clip.id != excludingClipId {
+                candidates.append(clip.startTime)
+                candidates.append(clip.endTime)
+            }
+        }
+        let threshold = max(0.08, Double(8 / pixelsPerSecond))
+        return candidates.min(by: { abs($0 - clamped) < abs($1 - clamped) }).flatMap {
+            abs($0 - clamped) <= threshold ? max(0, $0) : clamped
+        } ?? clamped
+    }
+
     // MARK: - 轨道操作
 
     private func addTrack(_ type: TrackType) {
@@ -266,10 +315,22 @@ struct TimelineView: View {
         try? appState.saveCurrentProject()
     }
 
+    private func setClipVolume(clipId: String, volume: Double) {
+        guard var project = appState.currentProject else { return }
+        do {
+            try timelineService.setVolume(clipId: clipId, volume: volume, project: &project)
+            appState.currentProject = project
+            appState.selectedClipId = clipId
+            try? appState.saveCurrentProject()
+        } catch {
+            // 非法音量直接忽略
+        }
+    }
+
     private func setClipStartTime(clipId: String, startTime: Double) {
         guard var project = appState.currentProject else { return }
         do {
-            try timelineService.setStartTime(clipId: clipId, startTime: startTime, project: &project)
+            try timelineService.setStartTime(clipId: clipId, startTime: snappedTime(startTime, excludingClipId: clipId), project: &project)
             appState.currentProject = project
             appState.selectedClipId = clipId
             try? appState.saveCurrentProject()
@@ -378,6 +439,8 @@ struct TimelineRulerView: View {
     let duration: Double
     let pixelsPerSecond: CGFloat
     let width: CGFloat
+    let playheadTime: Double
+    let onSetPlayhead: (Double) -> Void
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -396,8 +459,19 @@ struct TimelineRulerView: View {
                 }
                 .offset(x: CGFloat(second) * pixelsPerSecond)
             }
+            Rectangle()
+                .fill(Color.red.opacity(0.85))
+                .frame(width: 1.5)
+                .offset(x: CGFloat(playheadTime) * pixelsPerSecond)
         }
         .frame(width: width, height: 28)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    onSetPlayhead(Double(max(0, value.location.x) / pixelsPerSecond))
+                }
+        )
     }
 
     private var majorStep: Int {
@@ -431,8 +505,12 @@ struct TrackRowView: View {
     let timelineDuration: Double
     let pixelsPerSecond: CGFloat
     let onSetStartTime: (String, Double) -> Void
+    let onSetVolume: (String, Double) -> Void
     let onSplitClip: (String, Double) -> Void
     let activeTool: TimelineView.TimelineTool
+    let magneticSnap: Bool
+    let playheadTime: Double
+    let onSetPlayhead: (Double) -> Void
     @State private var dragStartTimes: [String: Double] = [:]
     @State private var hoverXByClipId: [String: CGFloat] = [:]
 
@@ -447,6 +525,12 @@ struct TrackRowView: View {
                 ZStack(alignment: .leading) {
                     timelineGrid
 
+                    Rectangle()
+                        .fill(Color.red.opacity(0.75))
+                        .frame(width: 1.5, height: rowHeight)
+                        .offset(x: CGFloat(playheadTime) * pixelsPerSecond)
+                        .allowsHitTesting(false)
+
                     if track.clips.isEmpty {
                         Text(emptyText)
                             .font(.caption2)
@@ -458,7 +542,8 @@ struct TrackRowView: View {
                                 clip: clip,
                                 trackType: track.type,
                                 isSelected: clip.id == selectedClipId,
-                                displayWidth: clipWidth(clip)
+                                displayWidth: clipWidth(clip),
+                                onSetVolume: { volume in onSetVolume(clip.id, volume) }
                             )
                             .position(
                                 x: clipX(clip) + clipWidth(clip) / 2,
@@ -521,6 +606,13 @@ struct TrackRowView: View {
                 }
                 .frame(width: canvasWidth, height: rowHeight)
                 .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: activeTool == .shuttle ? 0 : 999_999)
+                        .onChanged { value in
+                            guard activeTool == .shuttle else { return }
+                            onSetPlayhead(Double(max(0, value.location.x) / pixelsPerSecond))
+                        }
+                )
                 .onDrop(of: [.plainText], isTargeted: nil) { providers in
                     handleDrop(providers: providers, targetIndex: track.sortedClips.count)
                 }
@@ -592,8 +684,8 @@ struct TrackRowView: View {
 
     private var rowHeight: CGFloat {
         switch track.type {
-        case .video:    return 62
-        case .audio:    return 48
+        case .video:    return 72
+        case .audio:    return 58
         case .subtitle: return 48
         }
     }
@@ -653,6 +745,7 @@ struct ClipView: View {
     let trackType: TrackType
     let isSelected: Bool
     var displayWidth: CGFloat? = nil
+    var onSetVolume: ((Double) -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 1) {
@@ -668,9 +761,24 @@ struct ClipView: View {
                         .padding(.horizontal, 4)
                 }
 
-            Text("\(formatTime(clip.inPoint)) — \(formatTime(clip.outPoint))")
-                .font(.system(size: 8).monospacedDigit())
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text("\(formatTime(clip.inPoint)) — \(formatTime(clip.outPoint))")
+                    .font(.system(size: 8).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if trackType != .subtitle, let onSetVolume {
+                    Slider(
+                        value: Binding(
+                            get: { clip.volume },
+                            set: { onSetVolume($0) }
+                        ),
+                        in: 0...2
+                    )
+                    .frame(width: min(max((displayWidth ?? clipWidth) - 82, 34), 90))
+                    Text("\(Int(clip.volume * 100))%")
+                        .font(.system(size: 8).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
