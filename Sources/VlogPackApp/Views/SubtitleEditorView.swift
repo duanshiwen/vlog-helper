@@ -102,25 +102,31 @@ struct SubtitleEditorView: View {
                         SubtitleSegmentRow(
                             segment: segment,
                             onUpdateText: { newText in
+                                guard var p = appState.currentProject else { return }
                                 subtitleService.updateText(
                                     segmentId: segment.id,
                                     text: newText,
-                                    project: &appState.currentProject!
+                                    project: &p
                                 )
+                                appState.currentProject = p
                                 try? appState.saveCurrentProject()
                             },
                             onMerge: {
+                                guard var p = appState.currentProject else { return }
                                 subtitleService.mergeWithNext(
                                     segmentId: segment.id,
-                                    project: &appState.currentProject!
+                                    project: &p
                                 )
+                                appState.currentProject = p
                                 try? appState.saveCurrentProject()
                             },
                             onDelete: {
+                                guard var p = appState.currentProject else { return }
                                 subtitleService.deleteSegment(
                                     segmentId: segment.id,
-                                    project: &appState.currentProject!
+                                    project: &p
                                 )
+                                appState.currentProject = p
                                 try? appState.saveCurrentProject()
                             }
                         )
@@ -143,9 +149,10 @@ struct SubtitleEditorView: View {
 
     private var filteredSegments: [SubtitleSegment] {
         guard !searchText.isEmpty else { return segments }
+        guard let project = appState.currentProject else { return [] }
         return subtitleService.searchSegments(
             query: searchText,
-            project: appState.currentProject!
+            project: project
         )
     }
 
@@ -161,11 +168,10 @@ struct SubtitleEditorView: View {
         transcriptionError = nil
 
         let svc = transcriptionService
-        let timelineService = TimelineService()
         let projectCopy = project
         let projectRoot = root
 
-        Task {
+        Task.detached {
             do {
                 let doc = try svc.transcribeFromTimeline(
                     project: projectCopy,
@@ -173,24 +179,25 @@ struct SubtitleEditorView: View {
                     language: "zh"
                 )
                 await MainActor.run {
-                    appState.currentProject?.subtitles = doc
-                    // 同步到字幕轨道
-                    syncSubtitlesToTrack(doc: doc, project: &appState.currentProject!)
-                    try? appState.saveCurrentProject()
+                    guard var p = self.appState.currentProject else { return }
+                    p.subtitles = doc
+                    self.applySubtitlesToTrack(doc: doc, project: &p)
+                    self.appState.currentProject = p
+                    try? self.appState.saveCurrentProject()
                 }
             } catch {
                 await MainActor.run {
-                    transcriptionError = "转写失败：\(error.localizedDescription)"
+                    self.transcriptionError = "转写失败：\(error.localizedDescription)"
                 }
             }
             await MainActor.run {
-                isTranscribing = false
+                self.isTranscribing = false
             }
         }
     }
 
-    /// 将字幕段同步到字幕轨道
-    private func syncSubtitlesToTrack(doc: SubtitleDocument, project: inout VlogProject) {
+    /// 将字幕段应用到字幕轨道（纯函数，不持有 appState）
+    private func applySubtitlesToTrack(doc: SubtitleDocument, project: inout VlogProject) {
         let timelineService = TimelineService()
         // 确保有字幕轨道
         let subtitleTrack: Track
