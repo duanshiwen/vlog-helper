@@ -1,107 +1,135 @@
 #!/usr/bin/env python3
-"""Generate a macOS .icns icon for VlogPack."""
+"""Generate a polished macOS .icns icon for VlogPack — v2."""
 from PIL import Image, ImageDraw, ImageFont
-import os, subprocess, tempfile
+import math, os, subprocess, tempfile
 
 SIZE = 1024
 CANVAS = (SIZE, SIZE)
 
+
+def lerp_color(c1, c2, t):
+    return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
+
+
 def create_icon_image():
     img = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
 
-    # 1. 圆角矩形背景 — 模拟 macOS Big Sur 风格
-    # 先画一个渐变色背景
+    # ── 1. 渐变背景 ──────────────────────────────────
+    # 用 Pillow 逐行渐变：紫→深蓝→靛
     for y in range(SIZE):
-        ratio = y / SIZE
-        # 深蓝到青色渐变
-        r = int(20 + ratio * 40)
-        g = int(60 + ratio * 120)
-        b = int(140 + ratio * 100)
-        draw.line([(0, y), (SIZE, y)], fill=(r, g, b, 255))
+        t = y / SIZE
+        if t < 0.5:
+            c = lerp_color((88, 40, 180), (30, 50, 160), t * 2)
+        else:
+            c = lerp_color((30, 50, 160), (10, 100, 180), (t - 0.5) * 2)
+        ImageDraw.Draw(img).line([(0, y), (SIZE, y)], fill=(*c, 255))
 
-    # 2. 圆角蒙版
+    # ── 2. 圆角蒙版 ──────────────────────────────────
     mask = Image.new("L", CANVAS, 0)
-    mask_draw = ImageDraw.Draw(mask)
-    radius = 220  # macOS standard corner radius ~22.4% of 1024
-    mask_draw.rounded_rectangle([(0, 0), (SIZE - 1, SIZE - 1)], radius=radius, fill=255)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        [(0, 0), (SIZE - 1, SIZE - 1)], radius=228, fill=255
+    )
     img.putalpha(mask)
 
-    # 3. 半透明高光叠加（顶部）
-    overlay = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    ov_draw = ImageDraw.Draw(overlay)
-    for y in range(SIZE // 2):
-        alpha = int(40 * (1 - y / (SIZE // 2)))
-        ov_draw.line([(0, y), (SIZE, y)], fill=(255, 255, 255, alpha))
-    img = Image.alpha_composite(img, overlay)
     draw = ImageDraw.Draw(img)
 
-    # 4. 中心元素 — 播放按钮 (三角形 + 圆形)
-    cx, cy = SIZE // 2, SIZE // 2 - 30
+    # ── 3. 顶部微光 ──────────────────────────────────
+    highlight = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    h_draw = ImageDraw.Draw(highlight)
+    for y in range(int(SIZE * 0.45)):
+        a = int(30 * (1 - y / (SIZE * 0.45)) ** 2)
+        h_draw.line([(0, y), (SIZE, y)], fill=(255, 255, 255, a))
+    img = Image.alpha_composite(img, highlight)
+    draw = ImageDraw.Draw(img)
 
-    # 外圈 — 半透明白色
-    outer_r = 280
-    draw.ellipse(
-        [(cx - outer_r, cy - outer_r), (cx + outer_r, cy + outer_r)],
-        fill=(255, 255, 255, 30),
-        outline=(255, 255, 255, 80),
-        width=4,
-    )
+    # ── 4. 主元素：胶片帧 + 播放三角 ──────────────────
+    cx, cy = SIZE // 2, SIZE // 2 - 20
 
-    # 内圈
-    inner_r = 200
-    draw.ellipse(
-        [(cx - inner_r, cy - inner_r), (cx + inner_r, cy + inner_r)],
-        fill=(255, 255, 255, 50),
-        outline=(255, 255, 255, 120),
+    # 胶片外框（圆角矩形）
+    film_w, film_h = 480, 360
+    film_x = cx - film_w // 2
+    film_y = cy - film_h // 2
+    draw.rounded_rectangle(
+        [(film_x, film_y), (film_x + film_w, film_y + film_h)],
+        radius=24,
+        fill=(0, 0, 0, 90),
+        outline=(255, 255, 255, 100),
         width=3,
     )
 
-    # 播放三角形
-    triangle_offset = 40  # 稍微右移，视觉居中
-    tx = cx + triangle_offset
-    ty = cy
-    tri_size = 140
-    points = [
-        (tx - tri_size // 2, ty - int(tri_size * 0.866 // 2)),  # 左上
-        (tx - tri_size // 2, ty + int(tri_size * 0.866 // 2)),  # 左下
-        (tx + tri_size // 2, ty),  # 右中
-    ]
-    draw.polygon(points, fill=(255, 255, 255, 230))
-
-    # 5. 底部文字 "VP"
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/SFNSRounded.ttf", 160)
-    except:
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 160)
-        except:
-            font = ImageFont.load_default()
-
-    text = "VP"
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    tx = (SIZE - tw) // 2
-    ty = SIZE - 260
-    draw.text((tx, ty), text, fill=(255, 255, 255, 200), font=font)
-
-    # 6. 胶片齿孔装饰（左右两侧）
-    hole_color = (255, 255, 255, 25)
-    hole_r = 20
-    for side_x in [80, SIZE - 80]:
-        for i in range(5):
-            hy = 200 + i * 140
+    # 胶片齿孔（顶部 & 底部）
+    hole_w, hole_h = 36, 24
+    hole_gap = 60
+    for row_y in [film_y + 14, film_y + film_h - 14 - hole_h]:
+        hx = film_x + 20
+        while hx + hole_w < film_x + film_w - 10:
             draw.rounded_rectangle(
-                [(side_x - hole_r, hy - hole_r), (side_x + hole_r, hy + hole_r)],
-                radius=8,
-                fill=hole_color,
+                [(hx, row_y), (hx + hole_w, row_y + hole_h)],
+                radius=5,
+                fill=(255, 255, 255, 40),
             )
+            hx += hole_gap
+
+    # 播放三角形（居中，略微右移视觉补偿）
+    tri_cx = cx + 15
+    tri_cy = cy
+    tri_h = 160
+    tri_w = int(tri_h * 0.866)
+    tri_points = [
+        (tri_cx - tri_w // 3, tri_cy - tri_h // 2),
+        (tri_cx - tri_w // 3, tri_cy + tri_h // 2),
+        (tri_cx + tri_w * 2 // 3, tri_cy),
+    ]
+    # 三角形带微光
+    draw.polygon(tri_points, fill=(255, 255, 255, 230))
+
+    # 三角形内部高光
+    inner = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    inner_draw = ImageDraw.Draw(inner)
+    inner_points = [
+        (tri_cx - tri_w // 3 + 15, tri_cy - tri_h // 2 + 30),
+        (tri_cx - tri_w // 3 + 15, tri_cy + tri_h // 2 - 30),
+        (tri_cx + tri_w * 2 // 3 - 30, tri_cy),
+    ]
+    inner_draw.polygon(inner_points, fill=(255, 255, 255, 40))
+    img = Image.alpha_composite(img, inner)
+
+    # ── 5. 底部小字 ──────────────────────────────────
+    draw = ImageDraw.Draw(img)
+    try:
+        font_small = ImageFont.truetype(
+            "/System/Library/Fonts/SFNSRounded.ttf", 56
+        )
+    except:
+        font_small = ImageFont.truetype(
+            "/System/Library/Fonts/Helvetica.ttc", 56
+        )
+    label = "VlogPack"
+    bbox = draw.textbbox((0, 0), label, font=font_small)
+    tw = bbox[2] - bbox[0]
+    draw.text(
+        ((SIZE - tw) // 2, film_y + film_h + 40),
+        label,
+        fill=(255, 255, 255, 160),
+        font=font_small,
+    )
+
+    # ── 6. 外圈微弱光晕 ──────────────────────────────
+    glow = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow)
+    for r in range(380, 340, -1):
+        a = int(8 * (1 - (r - 340) / 40))
+        glow_draw.ellipse(
+            [(cx - r, cy - r), (cx + r, cy + r)],
+            outline=(180, 160, 255, a),
+            width=1,
+        )
+    img = Image.alpha_composite(img, glow)
 
     return img
 
 
 def generate_icns(img, output_path):
-    """Generate .icns file using iconutil."""
     iconset_dir = tempfile.mkdtemp(suffix=".iconset")
     sizes = {
         "icon_16x16.png": 16,
@@ -118,12 +146,10 @@ def generate_icns(img, output_path):
     for name, size in sizes.items():
         resized = img.resize((size, size), Image.LANCZOS)
         resized.save(os.path.join(iconset_dir, name))
-
     subprocess.run(
-        ["iconutil", "-c", "icns", iconset_dir, "-o", output_path],
-        check=True,
+        ["iconutil", "-c", "icns", iconset_dir, "-o", output_path], check=True
     )
-    print(f"✅ Generated: {output_path} ({os.path.getsize(output_path) // 1024}KB)")
+    print(f"✅ {output_path} ({os.path.getsize(output_path) // 1024}KB)")
 
 
 if __name__ == "__main__":
@@ -132,6 +158,5 @@ if __name__ == "__main__":
     os.makedirs(out_dir, exist_ok=True)
     icns_path = os.path.join(out_dir, "AppIcon.icns")
     generate_icns(img, icns_path)
-    # Also save a PNG preview
     img.save(os.path.join(out_dir, "AppIcon.png"))
-    print(f"✅ Preview: {os.path.join(out_dir, 'AppIcon.png')}")
+    print(f"✅ Preview PNG saved")
