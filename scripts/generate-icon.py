@@ -19,10 +19,10 @@ def create():
 
     # ── VP 文字 ────────────────────────────────────
     try:
-        font = ImageFont.truetype("/System/Library/Fonts/SFNSRounded.ttf", 640)
+        font = ImageFont.truetype("/System/Library/Fonts/SFNSRounded.ttf", 720)
     except:
         try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 640)
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 720)
         except:
             font = ImageFont.load_default()
 
