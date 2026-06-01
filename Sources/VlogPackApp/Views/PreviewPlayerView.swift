@@ -109,22 +109,6 @@ struct PreviewPlayerView: View {
                     }
                 }
 
-                // 字幕叠加层
-                if !currentSubtitleText.isEmpty {
-                    VStack {
-                        Spacer()
-                        Text(currentSubtitleText)
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.8), radius: 4, x: 0, y: 2)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.black.opacity(0.4))
-                            .cornerRadius(6)
-                            .padding(.bottom, 24)
-                    }
-                    .allowsHitTesting(false)
-                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

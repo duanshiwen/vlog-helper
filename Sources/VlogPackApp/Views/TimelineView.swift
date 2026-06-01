@@ -45,10 +45,11 @@ struct TimelineView: View {
             if tracks.isEmpty {
                 emptyTimelineView
             } else {
-                ScrollView(.vertical) {
-                    VStack(spacing: 1) {
-                        ForEach(sortedTracks) { track in
-                            TrackRowView(
+                ScrollView(.horizontal) {
+                    ScrollView(.vertical) {
+                        VStack(spacing: 1) {
+                            ForEach(sortedTracks) { track in
+                                TrackRowView(
                                 track: track,
                                 selectedClipId: appState.selectedClipId,
                                 onSelectClip: { clipId in
@@ -80,13 +81,16 @@ struct TimelineView: View {
                                 onRemoveTrack: {
                                     removeTrack(track: track)
                                 },
-                                onMoveClip: { clipId, targetTrackId, targetIndex in
-                                    moveClip(clipId: clipId, toTrack: targetTrackId, index: targetIndex)
-                                }
-                            )
+                                    onMoveClip: { clipId, targetTrackId, targetIndex in
+                                        moveClip(clipId: clipId, toTrack: targetTrackId, index: targetIndex)
+                                    },
+                                    timelineDuration: max(totalDuration, 1)
+                                )
+                            }
                         }
+                        .padding(8)
                     }
-                    .padding(8)
+                    .frame(minWidth: timelineCanvasWidth + 128)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -139,6 +143,12 @@ struct TimelineView: View {
 
     private var totalDuration: Double {
         appState.currentProject?.timeline.totalDuration ?? 0
+    }
+
+    private var pixelsPerSecond: CGFloat { 12 }
+
+    private var timelineCanvasWidth: CGFloat {
+        max(520, CGFloat(max(totalDuration, 1)) * pixelsPerSecond)
     }
 
     private func mediaItem(for clip: TimelineClip) -> MediaItem? {
@@ -268,89 +278,68 @@ struct TrackRowView: View {
     let onToggleMute: () -> Void
     let onRemoveTrack: () -> Void
     let onMoveClip: (String, String, Int) -> Void
+    let timelineDuration: Double
+
+    private let headerWidth: CGFloat = 108
+    private let menuWidth: CGFloat = 24
+    private let pixelsPerSecond: CGFloat = 12
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                // 轨道标签
-                HStack(spacing: 4) {
-                    Image(systemName: track.type.iconName)
-                        .font(.caption2)
-                        .foregroundStyle(trackColor)
-                    Text(track.name)
-                        .font(.caption)
-                        .foregroundStyle(.primary)
-                }
-                .frame(width: 72, alignment: .leading)
+                trackHeader
 
-                // 静音按钮
-                Button {
-                    onToggleMute()
-                } label: {
-                    Image(systemName: track.isMuted ? "speaker.slash" : "speaker.wave.2")
-                        .font(.caption2)
-                        .foregroundStyle(track.isMuted ? .red : .secondary)
-                }
-                .buttonStyle(.borderless)
-                .frame(width: 20)
+                ZStack(alignment: .leading) {
+                    timelineGrid
 
-                // 片段列表
-                if track.clips.isEmpty {
-                    Text(emptyText)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 4) {
-                            ForEach(Array(track.sortedClips.enumerated()), id: \.element.id) { index, clip in
-                                ClipView(
-                                    clip: clip,
-                                    trackType: track.type,
-                                    isSelected: clip.id == selectedClipId
-                                )
-                                .onTapGesture { onSelectClip(clip.id) }
-                                .onDrag {
-                                    onSelectClip(clip.id)
-                                    return NSItemProvider(object: clip.id as NSString)
+                    if track.clips.isEmpty {
+                        Text(emptyText)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .padding(.leading, 8)
+                    } else {
+                        ForEach(Array(track.sortedClips.enumerated()), id: \.element.id) { index, clip in
+                            ClipView(
+                                clip: clip,
+                                trackType: track.type,
+                                isSelected: clip.id == selectedClipId,
+                                displayWidth: clipWidth(clip)
+                            )
+                            .position(
+                                x: clipX(clip) + clipWidth(clip) / 2,
+                                y: rowHeight / 2
+                            )
+                            .onTapGesture { onSelectClip(clip.id) }
+                            .onDrag {
+                                onSelectClip(clip.id)
+                                return NSItemProvider(object: clip.id as NSString)
+                            }
+                            .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                                handleDrop(providers: providers, targetIndex: index)
+                            }
+                            .contextMenu {
+                                if track.type == .video {
+                                    Button("裁剪开头…") { onTrimClip(clip, .inPoint) }
+                                    Button("裁剪结尾…") { onTrimClip(clip, .outPoint) }
+                                    Divider()
+                                    Button("裁掉前 5 秒") { onQuickTrim(clip, 5, false) }
+                                    Button("裁掉后 5 秒") { onQuickTrim(clip, 5, true) }
+                                    Divider()
+                                    Button("重置裁剪") { onResetTrim(clip) }
+                                    Divider()
                                 }
-                                .onDrop(of: [.plainText], isTargeted: nil) { providers in
-                                    handleDrop(providers: providers, targetIndex: index)
-                                }
-                                .contextMenu {
-                                    if track.type == .video {
-                                        Button("裁剪开头…") { onTrimClip(clip, .inPoint) }
-                                        Button("裁剪结尾…") { onTrimClip(clip, .outPoint) }
-                                        Divider()
-                                        Button("裁掉前 5 秒") { onQuickTrim(clip, 5, false) }
-                                        Button("裁掉后 5 秒") { onQuickTrim(clip, 5, true) }
-                                        Divider()
-                                        Button("重置裁剪") { onResetTrim(clip) }
-                                        Divider()
-                                    }
-                                    Button("移除", role: .destructive) { onRemoveClip(clip) }
-                                }
+                                Button("移除", role: .destructive) { onRemoveClip(clip) }
                             }
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                    .onDrop(of: [.plainText], isTargeted: nil) { providers in
-                        handleDrop(providers: providers, targetIndex: track.sortedClips.count)
-                    }
+                }
+                .frame(width: canvasWidth, height: rowHeight)
+                .contentShape(Rectangle())
+                .onDrop(of: [.plainText], isTargeted: nil) { providers in
+                    handleDrop(providers: providers, targetIndex: track.sortedClips.count)
                 }
 
-                // 轨道菜单
-                Menu {
-                    if track.type != .video {
-                        Button("删除轨道", role: .destructive) { onRemoveTrack() }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 16)
+                trackMenu
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -358,6 +347,91 @@ struct TrackRowView: View {
 
             Divider()
         }
+    }
+
+    private var trackHeader: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: track.type.iconName)
+                    .font(.caption2)
+                    .foregroundStyle(trackColor)
+                Text(track.name)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+            }
+            .frame(width: 72, alignment: .leading)
+
+            Button {
+                onToggleMute()
+            } label: {
+                Image(systemName: track.isMuted ? "speaker.slash" : "speaker.wave.2")
+                    .font(.caption2)
+                    .foregroundStyle(track.isMuted ? .red : .secondary)
+            }
+            .buttonStyle(.borderless)
+            .frame(width: 20)
+        }
+        .frame(width: headerWidth, alignment: .leading)
+    }
+
+    private var trackMenu: some View {
+        Menu {
+            if track.type != .video {
+                Button("删除轨道", role: .destructive) { onRemoveTrack() }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: menuWidth)
+    }
+
+    private var timelineGrid: some View {
+        ZStack(alignment: .leading) {
+            Rectangle().fill(Color(nsColor: .textBackgroundColor).opacity(0.45))
+            ForEach(0...Int(ceil(timelineDuration)), id: \.self) { second in
+                Rectangle()
+                    .fill(second % 5 == 0 ? Color.secondary.opacity(0.22) : Color.secondary.opacity(0.08))
+                    .frame(width: second % 5 == 0 ? 1 : 0.5)
+                    .offset(x: CGFloat(second) * pixelsPerSecond)
+            }
+        }
+    }
+
+    private var canvasWidth: CGFloat {
+        max(520, CGFloat(max(timelineDuration, 1)) * pixelsPerSecond)
+    }
+
+    private var rowHeight: CGFloat {
+        switch track.type {
+        case .video:    return 62
+        case .audio:    return 48
+        case .subtitle: return 48
+        }
+    }
+
+    private func clipStartOnTimeline(_ clip: TimelineClip) -> Double {
+        switch track.type {
+        case .video, .audio:
+            var start = 0.0
+            for item in track.sortedClips {
+                if item.id == clip.id { break }
+                start += item.duration
+            }
+            return start
+        case .subtitle:
+            return clip.inPoint
+        }
+    }
+
+    private func clipX(_ clip: TimelineClip) -> CGFloat {
+        CGFloat(clipStartOnTimeline(clip)) * pixelsPerSecond
+    }
+
+    private func clipWidth(_ clip: TimelineClip) -> CGFloat {
+        max(28, CGFloat(clip.duration) * pixelsPerSecond)
     }
 
     private func handleDrop(providers: [NSItemProvider], targetIndex: Int) -> Bool {
@@ -402,6 +476,7 @@ struct ClipView: View {
     let clip: TimelineClip
     let trackType: TrackType
     let isSelected: Bool
+    var displayWidth: CGFloat? = nil
 
     var body: some View {
         VStack(spacing: 1) {
@@ -411,7 +486,7 @@ struct ClipView: View {
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
                 )
-                .frame(width: clipWidth, height: trackHeight)
+                .frame(width: displayWidth ?? clipWidth, height: trackHeight)
                 .overlay(alignment: .leading) {
                     clipContent
                         .padding(.horizontal, 4)
