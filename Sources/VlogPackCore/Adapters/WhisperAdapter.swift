@@ -165,15 +165,45 @@ public final class WhisperAdapter: @unchecked Sendable {
 
         var whisperSegments: [WhisperSegment] = []
         for seg in segments {
-            let start = seg["timestamps"] as? [Any]
-            let t0 = (start?.first as? Double) ?? (seg["start"] as? Double) ?? 0
-            let t1 = (start?.last as? Double) ?? (seg["end"] as? Double) ?? 0
             let text = (seg["text"] as? String) ?? ""
-            whisperSegments.append(WhisperSegment(start: t0, end: t1, text: text.trimmingCharacters(in: .whitespaces)))
+            let trimmedText = text.trimmingCharacters(in: .whitespaces)
+            if trimmedText.isEmpty { continue }
+
+            // whisper-cli 输出格式: timestamps: { from: "HH:MM:SS,mmm", to: "HH:MM:SS,mmm" }
+            let t0: Double
+            let t1: Double
+            if let timestamps = seg["timestamps"] as? [String: Any],
+               let fromStr = timestamps["from"] as? String,
+               let toStr = timestamps["to"] as? String {
+                t0 = Self.parseTimestamp(fromStr)
+                t1 = Self.parseTimestamp(toStr)
+            } else if let offsets = seg["offsets"] as? [String: Any],
+                      let fromMs = offsets["from"] as? Int,
+                      let toMs = offsets["to"] as? Int {
+                t0 = Double(fromMs) / 1000.0
+                t1 = Double(toMs) / 1000.0
+            } else {
+                continue
+            }
+
+            whisperSegments.append(WhisperSegment(start: t0, end: t1, text: trimmedText))
         }
 
         let rawText = whisperSegments.map(\.text).joined(separator: " ")
         return WhisperResult(segments: whisperSegments, rawText: rawText)
+    }
+
+    /// 解析 whisper-cli 时间戳格式: "HH:MM:SS,mmm" -> 秒
+    private static func parseTimestamp(_ str: String) -> Double {
+        // 格式: "00:01:23,456"
+        let parts = str.split(separator: ":")
+        guard parts.count == 3 else { return 0 }
+        let hours = Double(parts[0]) ?? 0
+        let minutes = Double(parts[1]) ?? 0
+        let secParts = parts[2].split(separator: ",")
+        let seconds = Double(secParts[0]) ?? 0
+        let ms = secParts.count > 1 ? (Double(secParts[1]) ?? 0) : 0
+        return hours * 3600 + minutes * 60 + seconds + ms / 1000.0
     }
 }
 
