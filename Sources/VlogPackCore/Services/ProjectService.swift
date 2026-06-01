@@ -116,7 +116,9 @@ public final class ProjectService: @unchecked Sendable {
         }
 
         do {
-            let project: VlogProject = try JSONStore.read(from: projectFileURL)
+            var project: VlogProject = try JSONStore.read(from: projectFileURL)
+            // 自动迁移到多轨结构
+            project.migrateToMultiTrackIfNeeded()
             return project
         } catch {
             throw ProjectServiceError.projectFileReadFailed(

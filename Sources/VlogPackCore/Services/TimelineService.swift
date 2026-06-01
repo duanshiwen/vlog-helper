@@ -6,32 +6,97 @@ public enum TimelineServiceError: Error, Sendable {
     case invalidInPoint
     case invalidOutPoint
     case clipNotFound(id: String)
+    case trackNotFound(id: String)
+    case trackTypeMismatch(expected: TrackType, got: TrackType)
+    case videoTrackRequired
 }
 
 /// 时间线服务
 public final class TimelineService: @unchecked Sendable {
     public init() {}
 
+    // MARK: - 轨道管理
+
+    /// 添加新轨道
+    @discardableResult
+    public func addTrack(
+        type: TrackType,
+        name: String? = nil,
+        project: inout VlogProject
+    ) -> Track {
+        let trackName = name ?? defaultTrackName(type: type, project: project)
+        let track = Track(
+            name: trackName,
+            type: type,
+            order: project.timeline.tracks.count
+        )
+        project.timeline.tracks.append(track)
+        return track
+    }
+
+    /// 删除轨道
+    public func removeTrack(
+        trackId: String,
+        project: inout VlogProject
+    ) {
+        project.timeline.tracks.removeAll { $0.id == trackId }
+        reindexTracks(project: &project)
+    }
+
+    /// 切换轨道静音
+    public func toggleMute(
+        trackId: String,
+        project: inout VlogProject
+    ) throws {
+        guard let idx = project.timeline.tracks.firstIndex(where: { $0.id == trackId }) else {
+            throw TimelineServiceError.trackNotFound(id: trackId)
+        }
+        project.timeline.tracks[idx].isMuted.toggle()
+    }
+
+    /// 获取或创建默认视频轨道
+    public func ensureVideoTrack(project: inout VlogProject) -> Track {
+        if let existing = project.timeline.videoTrack {
+            return existing
+        }
+        return addTrack(type: .video, name: "主视频", project: &project)
+    }
+
     // MARK: - 添加片段
 
-    /// 将素材添加到时间线末尾
+    /// 将素材添加到指定轨道末尾
     @discardableResult
     public func addClip(
         mediaItemId: String,
+        toTrack trackId: String,
         project: inout VlogProject
     ) throws -> TimelineClip {
         guard let mediaItem = project.mediaItems.first(where: { $0.id == mediaItemId }) else {
             throw TimelineServiceError.mediaItemNotFound(id: mediaItemId)
         }
+        guard let trackIndex = project.timeline.tracks.firstIndex(where: { $0.id == trackId }) else {
+            throw TimelineServiceError.trackNotFound(id: trackId)
+        }
 
         let clip = TimelineClip(
             mediaItemId: mediaItemId,
+            trackId: trackId,
             inPoint: 0,
             outPoint: mediaItem.duration > 0 ? mediaItem.duration : 0,
-            order: project.timeline.clips.count
+            order: project.timeline.tracks[trackIndex].clips.count
         )
-        project.timeline.clips.append(clip)
+        project.timeline.tracks[trackIndex].clips.append(clip)
         return clip
+    }
+
+    /// 将素材添加到默认视频轨道
+    @discardableResult
+    public func addClip(
+        mediaItemId: String,
+        project: inout VlogProject
+    ) throws -> TimelineClip {
+        let track = ensureVideoTrack(project: &project)
+        return try addClip(mediaItemId: mediaItemId, toTrack: track.id, project: &project)
     }
 
     // MARK: - 删除片段
@@ -41,26 +106,49 @@ public final class TimelineService: @unchecked Sendable {
         clipId: String,
         project: inout VlogProject
     ) {
-        project.timeline.clips.removeAll { $0.id == clipId }
-        reindexClips(project: &project)
+        for i in 0..<project.timeline.tracks.count {
+            project.timeline.tracks[i].clips.removeAll { $0.id == clipId }
+        }
+        reindexAllClips(project: &project)
     }
 
     // MARK: - 重排序
 
-    /// 移动片段到新位置
+    /// 移动片段到同轨道新位置
     public func moveClip(
         clipId: String,
         to newIndex: Int,
         project: inout VlogProject
     ) throws {
-        guard let currentIndex = project.timeline.clips.firstIndex(where: { $0.id == clipId }) else {
+        guard let (trackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
             throw TimelineServiceError.clipNotFound(id: clipId)
         }
+        let clip = project.timeline.tracks[trackIndex].clips.remove(at: clipIndex)
+        let clampedIndex = max(0, min(newIndex, project.timeline.tracks[trackIndex].clips.count))
+        project.timeline.tracks[trackIndex].clips.insert(clip, at: clampedIndex)
+        reindexClips(trackIndex: trackIndex, project: &project)
+    }
 
-        let clip = project.timeline.clips.remove(at: currentIndex)
-        let clampedIndex = max(0, min(newIndex, project.timeline.clips.count))
-        project.timeline.clips.insert(clip, at: clampedIndex)
-        reindexClips(project: &project)
+    /// 移动片段到另一个轨道
+    public func moveClip(
+        clipId: String,
+        toTrack targetTrackId: String,
+        project: inout VlogProject
+    ) throws {
+        guard let (sourceTrackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
+            throw TimelineServiceError.clipNotFound(id: clipId)
+        }
+        guard let targetTrackIndex = project.timeline.tracks.firstIndex(where: { $0.id == targetTrackId }) else {
+            throw TimelineServiceError.trackNotFound(id: targetTrackId)
+        }
+
+        var clip = project.timeline.tracks[sourceTrackIndex].clips.remove(at: clipIndex)
+        clip.trackId = targetTrackId
+        clip.order = project.timeline.tracks[targetTrackIndex].clips.count
+        project.timeline.tracks[targetTrackIndex].clips.append(clip)
+
+        reindexClips(trackIndex: sourceTrackIndex, project: &project)
+        reindexClips(trackIndex: targetTrackIndex, project: &project)
     }
 
     // MARK: - 裁剪
@@ -71,16 +159,14 @@ public final class TimelineService: @unchecked Sendable {
         inPoint: Double,
         project: inout VlogProject
     ) throws {
-        guard let index = project.timeline.clips.firstIndex(where: { $0.id == clipId }) else {
+        guard let (trackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
             throw TimelineServiceError.clipNotFound(id: clipId)
         }
-
-        let clip = project.timeline.clips[index]
+        let clip = project.timeline.tracks[trackIndex].clips[clipIndex]
         guard inPoint >= 0 && inPoint < clip.outPoint else {
             throw TimelineServiceError.invalidInPoint
         }
-
-        project.timeline.clips[index].inPoint = inPoint
+        project.timeline.tracks[trackIndex].clips[clipIndex].inPoint = inPoint
     }
 
     /// 设置片段出点
@@ -89,19 +175,16 @@ public final class TimelineService: @unchecked Sendable {
         outPoint: Double,
         project: inout VlogProject
     ) throws {
-        guard let index = project.timeline.clips.firstIndex(where: { $0.id == clipId }) else {
+        guard let (trackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
             throw TimelineServiceError.clipNotFound(id: clipId)
         }
-
-        let clip = project.timeline.clips[index]
+        let clip = project.timeline.tracks[trackIndex].clips[clipIndex]
         guard outPoint > clip.inPoint else {
             throw TimelineServiceError.invalidOutPoint
         }
-
-        // 限制不超过素材时长
         let maxDuration = project.mediaItems
             .first(where: { $0.id == clip.mediaItemId })?.duration ?? outPoint
-        project.timeline.clips[index].outPoint = min(outPoint, maxDuration)
+        project.timeline.tracks[trackIndex].clips[clipIndex].outPoint = min(outPoint, maxDuration)
     }
 
     // MARK: - 查询
@@ -111,9 +194,16 @@ public final class TimelineService: @unchecked Sendable {
         project.timeline.totalDuration
     }
 
-    /// 获取时间线排序后的片段
-    public func sortedClips(project: VlogProject) -> [TimelineClip] {
-        project.timeline.sortedClips
+    /// 获取指定轨道排序后的片段
+    public func sortedClips(trackId: String, project: VlogProject) -> [TimelineClip] {
+        project.timeline.tracks
+            .first { $0.id == trackId }?
+            .sortedClips ?? []
+    }
+
+    /// 获取所有视频轨道排序后的片段
+    public func sortedVideoClips(project: VlogProject) -> [TimelineClip] {
+        project.timeline.videoTrack?.sortedClips ?? []
     }
 
     /// 根据 clipId 查找对应的 MediaItem
@@ -124,12 +214,25 @@ public final class TimelineService: @unchecked Sendable {
         project.mediaItems.first { $0.id == clip.mediaItemId }
     }
 
-    /// 生成时间线预览的 FFmpeg concat 参数
+    /// 查找 clip 所在的轨道索引和 clip 索引
+    private func findClip(
+        clipId: String,
+        project: VlogProject
+    ) -> (trackIndex: Int, clipIndex: Int)? {
+        for (ti, track) in project.timeline.tracks.enumerated() {
+            if let ci = track.clips.firstIndex(where: { $0.id == clipId }) {
+                return (ti, ci)
+            }
+        }
+        return nil
+    }
+
+    /// 生成时间线导出计划（视频轨道）
     public func generateExportPlan(
         project: VlogProject,
         projectRoot: URL
     ) -> FFmpegExportPlan? {
-        let clips = project.timeline.sortedClips
+        let clips = sortedVideoClips(project: project)
         guard !clips.isEmpty else { return nil }
 
         var segments: [FFmpegExportSegment] = []
@@ -159,9 +262,33 @@ public final class TimelineService: @unchecked Sendable {
 
     // MARK: - 内部
 
-    private func reindexClips(project: inout VlogProject) {
-        for i in 0..<project.timeline.clips.count {
-            project.timeline.clips[i].order = i
+    private func reindexTracks(project: inout VlogProject) {
+        for i in 0..<project.timeline.tracks.count {
+            project.timeline.tracks[i].order = i
+        }
+    }
+
+    private func reindexClips(trackIndex: Int, project: inout VlogProject) {
+        for i in 0..<project.timeline.tracks[trackIndex].clips.count {
+            project.timeline.tracks[trackIndex].clips[i].order = i
+        }
+    }
+
+    private func reindexAllClips(project: inout VlogProject) {
+        for ti in 0..<project.timeline.tracks.count {
+            reindexClips(trackIndex: ti, project: &project)
+        }
+    }
+
+    private func defaultTrackName(type: TrackType, project: VlogProject) -> String {
+        let existingCount = project.timeline.tracks.filter { $0.type == type }.count
+        switch type {
+        case .video:
+            return existingCount == 0 ? "主视频" : "视频 \(existingCount + 1)"
+        case .audio:
+            return "音频 \(existingCount + 1)"
+        case .subtitle:
+            return "字幕 \(existingCount + 1)"
         }
     }
 }

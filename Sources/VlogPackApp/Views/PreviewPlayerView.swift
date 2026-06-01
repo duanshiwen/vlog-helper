@@ -20,16 +20,16 @@ struct PlayerView: NSViewRepresentable {
     }
 }
 
-/// 视频预览播放器
+/// 视频预览播放器（支持字幕叠加）
 struct PreviewPlayerView: View {
     @Environment(AppState.self) private var appState
     @State private var player: AVPlayer?
     @State private var isPlaying = false
-    @State private var relativeTime: Double = 0   // 相对于 inPoint 的时间
+    @State private var relativeTime: Double = 0
     @State private var timeObserverToken: Any?
-
-    /// 当前播放的片段关键参数（用于检测裁剪变化）
     @State private var loadedClipKey: String = ""
+    /// 当前可见的字幕文本
+    @State private var currentSubtitleText: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,6 +52,23 @@ struct PreviewPlayerView: View {
                             .foregroundStyle(.gray)
                     }
                 }
+
+                // 字幕叠加层
+                if !currentSubtitleText.isEmpty {
+                    VStack {
+                        Spacer()
+                        Text(currentSubtitleText)
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.8), radius: 4, x: 0, y: 2)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(6)
+                            .padding(.bottom, 24)
+                    }
+                    .allowsHitTesting(false)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -59,7 +76,6 @@ struct PreviewPlayerView: View {
             if player != nil {
                 Divider()
                 HStack(spacing: 12) {
-                    // 播放/暂停
                     Button {
                         togglePlay()
                     } label: {
@@ -67,7 +83,6 @@ struct PreviewPlayerView: View {
                     }
                     .buttonStyle(.borderless)
 
-                    // 进度条（relativeTime: 0 = inPoint，duration = outPoint - inPoint）
                     Slider(
                         value: $relativeTime,
                         in: 0...max(currentClip?.duration ?? 1, 0.1)
@@ -79,7 +94,6 @@ struct PreviewPlayerView: View {
                         }
                     }
 
-                    // 时间显示
                     Text(formatTime(relativeTime) + " / " + formatTime(currentClip?.duration ?? 0))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -97,7 +111,6 @@ struct PreviewPlayerView: View {
             reloadIfNeeded()
         }
         .onChange(of: clipTrimKey) { _, _ in
-            // 裁剪参数变化时强制刷新
             forceReload()
         }
         .onAppear {
@@ -110,20 +123,35 @@ struct PreviewPlayerView: View {
     private var currentClip: TimelineClip? {
         guard let project = appState.currentProject else { return nil }
         if let id = appState.selectedClipId,
-           let clip = project.timeline.clips.first(where: { $0.id == id }) {
+           let clip = project.timeline.clip(byId: id) {
             return clip
         }
-        return project.timeline.sortedClips.first
+        return project.timeline.videoTrack?.sortedClips.first
     }
 
     private var clipCount: Int {
-        appState.currentProject?.timeline.clips.count ?? 0
+        appState.currentProject?.timeline.videoTrack?.clips.count ?? 0
     }
 
-    /// 裁剪参数指纹，用于检测 in/out 变化
     private var clipTrimKey: String {
         guard let clip = currentClip else { return "" }
         return "\(clip.id)_\(clip.inPoint)_\(clip.outPoint)"
+    }
+
+    // MARK: - 字幕
+
+    /// 根据当前播放时间查找匹配的字幕
+    private func findCurrentSubtitle(absoluteTime: Double) -> String {
+        guard let project = appState.currentProject,
+              let subtitleTrack = project.timeline.subtitleTrack else {
+            return ""
+        }
+        for clip in subtitleTrack.sortedClips {
+            if absoluteTime >= clip.inPoint && absoluteTime < clip.outPoint {
+                return clip.subtitleText ?? ""
+            }
+        }
+        return ""
     }
 
     // MARK: - 加载
@@ -141,6 +169,7 @@ struct PreviewPlayerView: View {
               let media = project.mediaItems.first(where: { $0.id == clip.mediaItemId }) else {
             player = nil
             loadedClipKey = ""
+            currentSubtitleText = ""
             return
         }
 
@@ -154,7 +183,6 @@ struct PreviewPlayerView: View {
         let url = root.appendingPathComponent(media.projectRelativePath)
         let avPlayer = AVPlayer(url: url)
 
-        // 跳到入点（用 toleranceBefore 精确定位）
         if clip.inPoint > 0 {
             let startTime = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
             avPlayer.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -164,10 +192,10 @@ struct PreviewPlayerView: View {
         self.relativeTime = 0
         self.isPlaying = false
         self.loadedClipKey = clipTrimKey
+        self.currentSubtitleText = ""
 
         addPeriodicObserver()
 
-        // 之前在播放则自动继续
         if wasPlaying {
             avPlayer.play()
             isPlaying = true
@@ -181,7 +209,6 @@ struct PreviewPlayerView: View {
         if isPlaying {
             player.pause()
         } else {
-            // 如果已到出点附近，回到入点
             let absTime = clip.inPoint + relativeTime
             if absTime >= clip.outPoint - 0.3 {
                 let start = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
@@ -204,17 +231,20 @@ struct PreviewPlayerView: View {
             Task { @MainActor in
                 guard let clip = currentClip else { return }
                 let abs = time.seconds
-                // 计算相对于 inPoint 的时间
                 let rel = max(0, abs - clip.inPoint)
                 relativeTime = min(rel, clip.duration)
 
-                // 超过出点自动暂停并回到入点
+                // 更新字幕
+                currentSubtitleText = findCurrentSubtitle(absoluteTime: abs)
+
+                // 超过出点自动暂停
                 if abs >= clip.outPoint - 0.05 {
                     player.pause()
                     isPlaying = false
                     let start = CMTime(seconds: clip.inPoint, preferredTimescale: 600)
                     player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
                     relativeTime = 0
+                    currentSubtitleText = ""
                 }
             }
         }
