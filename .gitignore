@@ -38,3 +38,4 @@ models/
 
 # Project media cache (never commit project data)
 *.vlogpack-cache/
+.venv/
