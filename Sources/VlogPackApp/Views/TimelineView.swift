@@ -50,10 +50,27 @@ struct TimelineView: View {
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 4) {
-                    Image(systemName: "minus.magnifyingglass")
+                    Button {
+                        zoom = max(0.5, zoom - 0.25)
+                    } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.mini)
+                    .help("缩小时间线")
+
                     Slider(value: $zoom, in: 0.5...4.0)
                         .frame(width: 100)
-                    Image(systemName: "plus.magnifyingglass")
+
+                    Button {
+                        zoom = min(4.0, zoom + 0.25)
+                    } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.mini)
+                    .help("放大时间线")
+
                     Text("\(Int(zoom * 100))%")
                         .font(.caption.monospacedDigit())
                         .frame(width: 42, alignment: .trailing)
