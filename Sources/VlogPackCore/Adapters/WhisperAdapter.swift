@@ -152,6 +152,12 @@ public final class WhisperAdapter: @unchecked Sendable {
 
         // 解析 JSON 输出
         let jsonPath = outputDir + "/whisper_output.json"
+
+        // 繁体 → 简体转换
+        let convertedPath = outputDir + "/whisper_output_s.json"
+        if convertTraditionalToSimplified(jsonPath: jsonPath, outputPath: convertedPath) {
+            return try parseOutput(jsonPath: convertedPath)
+        }
         return try parseOutput(jsonPath: jsonPath)
     }
 
@@ -191,6 +197,67 @@ public final class WhisperAdapter: @unchecked Sendable {
 
         let rawText = whisperSegments.map(\.text).joined(separator: " ")
         return WhisperResult(segments: whisperSegments, rawText: rawText)
+    }
+
+    /// 繁体 → 简体转换（调用 Python opencc）
+    private func convertTraditionalToSimplified(jsonPath: String, outputPath: String) -> Bool {
+        // 查找 t2s.py 脚本
+        let scriptPath = findT2SScript() ?? ""
+        guard !scriptPath.isEmpty else { return false }
+
+        // 查找 Python
+        let pythonPath = findPython() ?? ""
+        guard !pythonPath.isEmpty else { return false }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: pythonPath)
+        process.arguments = [scriptPath, jsonPath, outputPath]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0 && FileManager.default.fileExists(atPath: outputPath)
+        } catch {
+            return false
+        }
+    }
+
+    private func findT2SScript() -> String? {
+        let candidates: [String?] = [
+            Bundle.main.path(forResource: "t2s", ofType: "py"),
+            Bundle.main.bundlePath + "/Contents/MacOS/t2s.py",
+            Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("t2s.py").path,
+        ]
+        for candidate in candidates {
+            if let path = candidate, FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        // 开发环境: 项目根/scripts/t2s.py
+        let devPath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("scripts/t2s.py").path
+        if FileManager.default.fileExists(atPath: devPath) {
+            return devPath
+        }
+        return nil
+    }
+
+    private func findPython() -> String? {
+        let candidates = [
+            "/opt/homebrew/bin/python3",
+            "/usr/bin/python3",
+            Bundle.main.bundlePath + "/Contents/MacOS/t2s-venv/bin/python3",
+        ]
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return nil
     }
 
     /// 解析 whisper-cli 时间戳格式: "HH:MM:SS,mmm" -> 秒

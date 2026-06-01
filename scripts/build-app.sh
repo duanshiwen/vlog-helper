@@ -103,6 +103,17 @@ else
     echo "    Install via: brew install whisper-cpp"
 fi
 
+# t2s.py — 繁体转简体脚本 + opencc venv
+T2S_SCRIPT="$PROJECT_DIR/scripts/t2s.py"
+T2S_VENV="$PROJECT_DIR/.venv"
+if [ -f "$T2S_SCRIPT" ] && [ -d "$T2S_VENV" ]; then
+    cp "$T2S_SCRIPT" "$APP_DIR/Contents/MacOS/t2s.py"
+    cp -R "$T2S_VENV" "$APP_DIR/Contents/MacOS/t2s-venv"
+    echo "  ✓ t2s.py + opencc venv bundled"
+else
+    echo "  ⚠ t2s.py or .venv not found (繁转简功能不可用)"
+fi
+
 # Step 5: Codesign
 echo "[4/5] Codesigning..."
 if [ "$SIGN" = true ]; then
