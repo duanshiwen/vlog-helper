@@ -4,20 +4,75 @@ import AppKit
 import VlogPackCore
 
 /// AppKit AVPlayerView 桥接
+/// 注意：AVPlayerView 是 NSViewRepresentable，容易盖住 SwiftUI ZStack overlay。
+/// 因此字幕 overlay 直接挂在 AVPlayerView 内部，确保永远位于视频上方。
 struct PlayerView: NSViewRepresentable {
     let player: AVPlayer
+    let subtitleText: String
 
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
+    func makeNSView(context: Context) -> SubtitlePlayerNSView {
+        let view = SubtitlePlayerNSView()
         view.player = player
         // 关闭 AVPlayerView 原生控制条，避免与下方自定义控制栏形成“双进度条”
         view.controlsStyle = .none
         view.showsFullScreenToggleButton = false
+        view.setSubtitle(subtitleText)
         return view
     }
 
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+    func updateNSView(_ nsView: SubtitlePlayerNSView, context: Context) {
         nsView.player = player
+        nsView.setSubtitle(subtitleText)
+    }
+}
+
+final class SubtitlePlayerNSView: AVPlayerView {
+    private let subtitleLabel: NSTextField = {
+        let label = NSTextField(labelWithString: "")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.alignment = .center
+        label.font = .systemFont(ofSize: 22, weight: .semibold)
+        label.textColor = .white
+        label.maximumNumberOfLines = 3
+        label.lineBreakMode = .byWordWrapping
+        label.wantsLayer = true
+        label.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.45).cgColor
+        label.layer?.cornerRadius = 8
+        label.layer?.masksToBounds = true
+        label.shadow = {
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.9)
+            shadow.shadowBlurRadius = 4
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            return shadow
+        }()
+        return label
+    }()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupSubtitleLabel()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupSubtitleLabel()
+    }
+
+    private func setupSubtitleLabel() {
+        addSubview(subtitleLabel, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            subtitleLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            subtitleLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -28),
+            subtitleLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.86),
+            subtitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+        ])
+    }
+
+    func setSubtitle(_ text: String) {
+        subtitleLabel.stringValue = text
+        subtitleLabel.isHidden = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -39,7 +94,7 @@ struct PreviewPlayerView: View {
                 Color.black
 
                 if let player {
-                    PlayerView(player: player)
+                    PlayerView(player: player, subtitleText: currentSubtitleText)
                         .onAppear {
                             addPeriodicObserver()
                         }

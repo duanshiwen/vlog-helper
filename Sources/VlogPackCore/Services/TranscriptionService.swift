@@ -42,44 +42,50 @@ public final class TranscriptionService: @unchecked Sendable {
             throw TranscriptionServiceError.noClips
         }
 
-        // 2. 逐个裁切片段并拼接为临时视频
+        // 2. 直接逐段精确裁剪音频并拼接为 timeline.wav。
+        // 不再先用 -c:v copy 裁视频：按关键帧裁剪会引入时间偏移，导致字幕与预览不对齐。
         let tempDir = projectRoot.appendingPathComponent("cache/temp")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        var trimmedPaths: [String] = []
+        let audioOutput = projectRoot.appendingPathComponent("cache/audio/timeline.wav")
+        let audioDir = audioOutput.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+
+        var trimmedAudioPaths: [String] = []
         for (i, seg) in plan.segments.enumerated() {
-            let trimmedURL = tempDir.appendingPathComponent(String(format: "whisper_trimmed_%03d.mp4", i))
+            let trimmedURL = tempDir.appendingPathComponent(String(format: "whisper_audio_%03d.wav", i))
             let args = [
                 "-ss", String(format: "%.3f", seg.inPoint),
                 "-i", seg.sourcePath,
-                "-to", String(format: "%.3f", seg.duration),
-                "-c:v", "copy", "-c:a", "aac",
+                "-t", String(format: "%.3f", seg.duration),
+                "-vn",
+                "-ac", "1",
+                "-ar", "16000",
+                "-c:a", "pcm_s16le",
                 "-y", trimmedURL.path
             ]
             let result = try ffmpeg.execute(arguments: args)
             guard result.success else {
                 throw TranscriptionServiceError.audioExtractionFailed
             }
-            trimmedPaths.append(trimmedURL.path)
+            trimmedAudioPaths.append(trimmedURL.path)
         }
 
-        // 拼接裁切后的片段
-        let tempVideo = projectRoot.appendingPathComponent("cache/temp/whisper_temp.mp4")
-        if trimmedPaths.count == 1 {
-            try FileManager.default.copyItem(
-                atPath: trimmedPaths[0],
-                toPath: tempVideo.path
-            )
+        if trimmedAudioPaths.count == 1 {
+            try? FileManager.default.removeItem(at: audioOutput)
+            try FileManager.default.copyItem(atPath: trimmedAudioPaths[0], toPath: audioOutput.path)
         } else {
-            let concatURL = tempDir.appendingPathComponent("whisper_concat.txt")
-            let concatContent = trimmedPaths.map { "file '\($0)'" }.joined(separator: "\n")
+            let concatURL = tempDir.appendingPathComponent("whisper_audio_concat.txt")
+            let concatContent = trimmedAudioPaths.map { "file '\($0)'" }.joined(separator: "\n")
             try concatContent.write(to: concatURL, atomically: true, encoding: .utf8)
 
             let concatResult = try ffmpeg.execute(arguments: [
                 "-f", "concat", "-safe", "0",
                 "-i", concatURL.path,
-                "-c:v", "copy", "-c:a", "aac",
-                "-y", tempVideo.path
+                "-c:a", "pcm_s16le",
+                "-ar", "16000",
+                "-ac", "1",
+                "-y", audioOutput.path
             ])
             guard concatResult.success else {
                 throw TranscriptionServiceError.audioExtractionFailed
@@ -87,27 +93,9 @@ public final class TranscriptionService: @unchecked Sendable {
             try? FileManager.default.removeItem(at: concatURL)
         }
 
-        // 清理裁切临时文件
-        for path in trimmedPaths {
+        for path in trimmedAudioPaths {
             try? FileManager.default.removeItem(atPath: path)
         }
-
-        // 3. 提取 16kHz 单声道 WAV（whisper 要求）
-        let audioOutput = projectRoot.appendingPathComponent("cache/audio/timeline.wav")
-        let audioDir = audioOutput.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
-
-        let audioResult = try ffmpeg.extractAudio(
-            fromVideoPath: tempVideo.path,
-            outputPath: audioOutput.path
-        )
-
-        guard audioResult.success else {
-            throw TranscriptionServiceError.audioExtractionFailed
-        }
-
-        // 清理临时视频
-        try? FileManager.default.removeItem(at: tempVideo)
 
         // 3. 调用 whisper 转写
         let whisperResult = try whisper.transcribe(
