@@ -150,7 +150,7 @@ struct SubtitleEditorView: View {
     }
 
     private var hasClips: Bool {
-        !(appState.currentProject?.timeline.clips.isEmpty ?? true)
+        !(appState.currentProject?.timeline.videoTrack?.clips.isEmpty ?? true)
     }
 
     private func transcribe() {
@@ -161,7 +161,7 @@ struct SubtitleEditorView: View {
         transcriptionError = nil
 
         let svc = transcriptionService
-        // 复制一份 project 给后台线程，避免 MainActor 排他性冲突
+        let timelineService = TimelineService()
         let projectCopy = project
         let projectRoot = root
 
@@ -172,9 +172,10 @@ struct SubtitleEditorView: View {
                     projectRoot: projectRoot,
                     language: "zh"
                 )
-                // 回到 MainActor 应用结果
                 await MainActor.run {
                     appState.currentProject?.subtitles = doc
+                    // 同步到字幕轨道
+                    syncSubtitlesToTrack(doc: doc, project: &appState.currentProject!)
                     try? appState.saveCurrentProject()
                 }
             } catch {
@@ -184,6 +185,36 @@ struct SubtitleEditorView: View {
             }
             await MainActor.run {
                 isTranscribing = false
+            }
+        }
+    }
+
+    /// 将字幕段同步到字幕轨道
+    private func syncSubtitlesToTrack(doc: SubtitleDocument, project: inout VlogProject) {
+        let timelineService = TimelineService()
+        // 确保有字幕轨道
+        let subtitleTrack: Track
+        if let existing = project.timeline.subtitleTrack {
+            subtitleTrack = existing
+        } else {
+            subtitleTrack = timelineService.addTrack(type: .subtitle, name: "字幕", project: &project)
+        }
+        // 清空旧字幕 clips
+        if let idx = project.timeline.tracks.firstIndex(where: { $0.id == subtitleTrack.id }) {
+            project.timeline.tracks[idx].clips = []
+        }
+        // 为每个字幕段创建 clip
+        for segment in doc.segments {
+            let clip = TimelineClip(
+                mediaItemId: "subtitle", // 占位
+                trackId: subtitleTrack.id,
+                inPoint: segment.start,
+                outPoint: segment.end,
+                order: project.timeline.tracks[project.timeline.tracks.firstIndex(where: { $0.id == subtitleTrack.id })!].clips.count,
+                subtitleText: segment.text
+            )
+            if let idx = project.timeline.tracks.firstIndex(where: { $0.id == subtitleTrack.id }) {
+                project.timeline.tracks[idx].clips.append(clip)
             }
         }
     }

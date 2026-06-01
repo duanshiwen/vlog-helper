@@ -41,7 +41,7 @@ struct ProjectServiceTests {
         #expect(FileManager.default.fileExists(atPath: projectFile.path))
 
         // 验证项目模型
-        #expect(project.schemaVersion == "0.1.0")
+        #expect(project.schemaVersion == "0.2.0")
         #expect(project.projectName == "杭州日更 Vlog")
         #expect(project.aspectRatio == .landscape16x9)
         #expect(project.resolution == .hd1080)

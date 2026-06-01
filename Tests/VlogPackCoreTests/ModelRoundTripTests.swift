@@ -5,6 +5,12 @@ import Testing
 @Suite("Model Codable Round-Trip")
 struct ModelRoundTripTests {
 
+    /// 从 clips 创建带默认视频轨道的 Timeline
+    private func makeTimeline(clips: [TimelineClip]) -> Timeline {
+        let track = Track(name: "主视频", type: .video, clips: clips, order: 0)
+        return Timeline(tracks: [track])
+    }
+
     @Test("VlogProject 可以 JSON round-trip")
     func testVlogProjectRoundTrip() throws {
         let project = VlogProject(
@@ -21,7 +27,7 @@ struct ModelRoundTripTests {
                     frameRate: 30.0
                 )
             ],
-            timeline: Timeline(clips: [
+            timeline: makeTimeline(clips: [
                 TimelineClip(
                     id: "c1",
                     mediaItemId: "m1",
@@ -77,7 +83,7 @@ struct ModelRoundTripTests {
 
     @Test("Timeline totalDuration")
     func testTimelineTotalDuration() {
-        let timeline = Timeline(clips: [
+        let timeline = makeTimeline(clips: [
             TimelineClip(mediaItemId: "m1", inPoint: 0, outPoint: 10, order: 0),
             TimelineClip(mediaItemId: "m2", inPoint: 0, outPoint: 5.5, order: 1),
             TimelineClip(mediaItemId: "m3", inPoint: 2, outPoint: 8, order: 2),
@@ -88,7 +94,7 @@ struct ModelRoundTripTests {
 
     @Test("Timeline sortedClips 按 order 排序")
     func testTimelineSortedClips() {
-        let timeline = Timeline(clips: [
+        let timeline = makeTimeline(clips: [
             TimelineClip(mediaItemId: "m1", order: 2),
             TimelineClip(mediaItemId: "m2", order: 0),
             TimelineClip(mediaItemId: "m3", order: 1),
@@ -103,6 +109,52 @@ struct ModelRoundTripTests {
     func testSubtitleDuration() {
         let seg = SubtitleSegment(start: 1.0, end: 3.5, text: "Hello")
         #expect(seg.duration == 2.5)
+    }
+
+    @Test("多轨 Timeline round-trip")
+    func testMultiTrackTimelineRoundTrip() throws {
+        let videoTrack = Track(
+            name: "主视频", type: .video,
+            clips: [TimelineClip(mediaItemId: "m1", trackId: "vt", inPoint: 0, outPoint: 10, order: 0)],
+            order: 0
+        )
+        let subtitleTrack = Track(
+            name: "字幕", type: .subtitle,
+            clips: [TimelineClip(mediaItemId: "subtitle", trackId: "st", inPoint: 0, outPoint: 5, order: 0, subtitleText: "你好")],
+            order: 1
+        )
+        let timeline = Timeline(tracks: [videoTrack, subtitleTrack])
+
+        let data = try JSONEncoder.iso8601.encode(timeline)
+        let decoded = try JSONDecoder.iso8601.decode(Timeline.self, from: data)
+
+        #expect(decoded.tracks.count == 2)
+        #expect(decoded.tracks[0].type == .video)
+        #expect(decoded.tracks[1].type == .subtitle)
+        #expect(decoded.tracks[1].clips.first?.subtitleText == "你好")
+        #expect(decoded.videoTrack?.clips.count == 1)
+        #expect(decoded.subtitleTrack?.clips.count == 1)
+    }
+
+    @Test("v0.1 → v0.2 迁移")
+    func testMigrationFromV01() {
+        // 模拟旧版 Timeline（只有 clips，没有 tracks）
+        let oldClips = [
+            TimelineClip(mediaItemId: "m1", inPoint: 0, outPoint: 10, order: 0)
+        ]
+        let videoTrack = Track(name: "主视频", type: .video, clips: oldClips, order: 0)
+        var project = VlogProject(
+            schemaVersion: "0.1.0",
+            projectName: "旧项目",
+            timeline: Timeline(tracks: [videoTrack])
+        )
+
+        project.migrateToMultiTrackIfNeeded()
+
+        #expect(project.schemaVersion == "0.2.0")
+        #expect(project.timeline.tracks.count == 1)
+        #expect(project.timeline.tracks[0].type == .video)
+        #expect(project.timeline.clips.count == 1)
     }
 }
 

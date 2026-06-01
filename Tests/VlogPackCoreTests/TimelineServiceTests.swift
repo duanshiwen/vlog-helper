@@ -8,6 +8,7 @@ struct TimelineServiceTests {
 
     private func makeProjectWithMedia() -> VlogProject {
         var project = VlogProject(projectName: "测试")
+        project.migrateToMultiTrackIfNeeded()
         let item = MediaItem(
             id: "media-1",
             type: .video,
@@ -22,7 +23,7 @@ struct TimelineServiceTests {
         return project
     }
 
-    @Test("添加片段到时间线")
+    @Test("添加片段到视频轨道")
     func testAddClip() throws {
         var project = makeProjectWithMedia()
         let clip = try service.addClip(mediaItemId: "media-1", project: &project)
@@ -45,7 +46,6 @@ struct TimelineServiceTests {
     @Test("总时长计算")
     func testTotalDuration() throws {
         var project = makeProjectWithMedia()
-        // 添加第二个素材
         let item2 = MediaItem(
             id: "media-2",
             type: .video,
@@ -94,5 +94,71 @@ struct TimelineServiceTests {
 
         #expect(project.timeline.sortedClips[0].mediaItemId == "media-2")
         #expect(project.timeline.sortedClips[1].mediaItemId == "media-1")
+    }
+
+    @Test("添加字幕轨道")
+    func testAddSubtitleTrack() {
+        var project = makeProjectWithMedia()
+        let track = service.addTrack(type: .subtitle, name: "字幕", project: &project)
+
+        #expect(project.timeline.tracks.count == 2) // 默认视频 + 字幕
+        #expect(track.type == .subtitle)
+        #expect(track.name == "字幕")
+    }
+
+    @Test("添加字幕片段到字幕轨道")
+    func testAddSubtitleClip() throws {
+        var project = makeProjectWithMedia()
+        let subtitleTrack = service.addTrack(type: .subtitle, project: &project)
+
+        let clip = TimelineClip(
+            mediaItemId: "subtitle",
+            trackId: subtitleTrack.id,
+            inPoint: 0,
+            outPoint: 5,
+            order: 0,
+            subtitleText: "你好世界"
+        )
+        project.timeline.tracks[project.timeline.tracks.firstIndex(where: { $0.id == subtitleTrack.id })!].clips.append(clip)
+
+        #expect(project.timeline.subtitleTrack?.clips.count == 1)
+        #expect(project.timeline.subtitleTrack?.clips.first?.subtitleText == "你好世界")
+    }
+
+    @Test("删除字幕轨道")
+    func testRemoveSubtitleTrack() {
+        var project = makeProjectWithMedia()
+        let track = service.addTrack(type: .subtitle, project: &project)
+        service.removeTrack(trackId: track.id, project: &project)
+
+        #expect(project.timeline.tracks.count == 1)
+        #expect(project.timeline.subtitleTrack == nil)
+    }
+
+    @Test("切换静音")
+    func testToggleMute() throws {
+        var project = makeProjectWithMedia()
+        let track = service.addTrack(type: .audio, project: &project)
+
+        try service.toggleMute(trackId: track.id, project: &project)
+        #expect(project.timeline.tracks.first { $0.type == .audio }?.isMuted == true)
+
+        try service.toggleMute(trackId: track.id, project: &project)
+        #expect(project.timeline.tracks.first { $0.type == .audio }?.isMuted == false)
+    }
+
+    @Test("跨轨道移动片段")
+    func testMoveClipAcrossTracks() throws {
+        var project = makeProjectWithMedia()
+        let audioTrack = service.addTrack(type: .audio, project: &project)
+
+        // 添加到视频轨道
+        let clip = try service.addClip(mediaItemId: "media-1", project: &project)
+        #expect(project.timeline.videoTrack?.clips.count == 1)
+
+        // 移动到音频轨道
+        try service.moveClip(clipId: clip.id, toTrack: audioTrack.id, project: &project)
+        #expect(project.timeline.videoTrack?.clips.count == 0)
+        #expect(project.timeline.audioTracks.first?.clips.count == 1)
     }
 }

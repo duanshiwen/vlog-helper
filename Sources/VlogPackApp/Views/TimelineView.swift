@@ -1,7 +1,7 @@
 import SwiftUI
 import VlogPackCore
 
-/// 时间线视图
+/// 多轨时间线视图
 struct TimelineView: View {
     @Environment(AppState.self) private var appState
     @State private var timelineService = TimelineService()
@@ -25,64 +25,66 @@ struct TimelineView: View {
                 Text(formatDuration(totalDuration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                if !clips.isEmpty {
-                    Text("\(clips.count) 个片段")
+                Menu {
+                    Button("添加音频轨道") { addTrack(.audio) }
+                    Button("添加字幕轨道") { addTrack(.subtitle) }
+                } label: {
+                    Image(systemName: "plus.rectangle.on.rectangle")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
                 }
+                .menuStyle(.borderlessButton)
+                .frame(width: 24)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
 
             Divider()
 
-            // 时间线内容
-            if clips.isEmpty {
+            // 轨道列表
+            if tracks.isEmpty {
                 emptyTimelineView
             } else {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 4) {
-                        ForEach(clips) { clip in
-                            TimelineClipView(
-                                clip: clip,
-                                mediaItem: mediaItem(for: clip),
-                                isSelected: clip.id == appState.selectedClipId
-                            )
-                            .onTapGesture {
-                                appState.selectedClipId = clip.id
-                            }
-                            .contextMenu {
-                                Button("裁剪开头…") {
-                                    trimDialogType = .inPoint
-                                    trimValue = formatTime(clip.inPoint)
-                                    trimDialogClip = clip
-                                }
-                                Button("裁剪结尾…") {
-                                    trimDialogType = .outPoint
-                                    trimValue = formatTime(clip.outPoint)
-                                    trimDialogClip = clip
-                                }
-                                Divider()
-                                Button("裁掉前 5 秒") {
-                                    trimFromStart(clip: clip, seconds: 5)
-                                }
-                                Button("裁掉后 5 秒") {
-                                    trimFromEnd(clip: clip, seconds: 5)
-                                }
-                                Divider()
-                                Button("重置裁剪") {
-                                    resetTrim(clip: clip)
-                                }
-                                Divider()
-                                Button("移除", role: .destructive) {
+                ScrollView(.vertical) {
+                    VStack(spacing: 1) {
+                        ForEach(sortedTracks) { track in
+                            TrackRowView(
+                                track: track,
+                                selectedClipId: appState.selectedClipId,
+                                onSelectClip: { clipId in
+                                    appState.selectedClipId = clipId
+                                },
+                                onRemoveClip: { clip in
                                     removeClip(clip)
+                                },
+                                onTrimClip: { clip, type in
+                                    trimDialogType = type
+                                    trimValue = type == .inPoint
+                                        ? formatTime(clip.inPoint)
+                                        : formatTime(clip.outPoint)
+                                    trimDialogClip = clip
+                                },
+                                onQuickTrim: { clip, seconds, fromEnd in
+                                    if fromEnd {
+                                        trimFromEnd(clip: clip, seconds: seconds)
+                                    } else {
+                                        trimFromStart(clip: clip, seconds: seconds)
+                                    }
+                                },
+                                onResetTrim: { clip in
+                                    resetTrim(clip: clip)
+                                },
+                                onToggleMute: {
+                                    toggleMute(track: track)
+                                },
+                                onRemoveTrack: {
+                                    removeTrack(track: track)
                                 }
-                            }
+                            )
                         }
                     }
                     .padding(8)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
@@ -103,6 +105,8 @@ struct TimelineView: View {
         }
     }
 
+    // MARK: - 空状态
+
     private var emptyTimelineView: some View {
         HStack {
             Spacer()
@@ -119,10 +123,14 @@ struct TimelineView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Helpers
+    // MARK: - 数据源
 
-    private var clips: [TimelineClip] {
-        appState.currentProject?.timeline.sortedClips ?? []
+    private var tracks: [Track] {
+        appState.currentProject?.timeline.tracks ?? []
+    }
+
+    private var sortedTracks: [Track] {
+        appState.currentProject?.timeline.sortedTracks ?? []
     }
 
     private var totalDuration: Double {
@@ -133,6 +141,28 @@ struct TimelineView: View {
         appState.currentProject?.mediaItems.first { $0.id == clip.mediaItemId }
     }
 
+    // MARK: - 轨道操作
+
+    private func addTrack(_ type: TrackType) {
+        guard appState.currentProject != nil else { return }
+        timelineService.addTrack(type: type, project: &appState.currentProject!)
+        try? appState.saveCurrentProject()
+    }
+
+    private func removeTrack(track: Track) {
+        guard appState.currentProject != nil else { return }
+        timelineService.removeTrack(trackId: track.id, project: &appState.currentProject!)
+        try? appState.saveCurrentProject()
+    }
+
+    private func toggleMute(track: Track) {
+        guard appState.currentProject != nil else { return }
+        try? timelineService.toggleMute(trackId: track.id, project: &appState.currentProject!)
+        try? appState.saveCurrentProject()
+    }
+
+    // MARK: - 片段操作
+
     private func removeClip(_ clip: TimelineClip) {
         guard appState.currentProject != nil else { return }
         if appState.selectedClipId == clip.id {
@@ -142,7 +172,7 @@ struct TimelineView: View {
         try? appState.saveCurrentProject()
     }
 
-    // MARK: - Trim Actions
+    // MARK: - Trim
 
     private func trimFromStart(clip: TimelineClip, seconds: Double) {
         guard appState.currentProject != nil else { return }
@@ -177,6 +207,8 @@ struct TimelineView: View {
         try? appState.saveCurrentProject()
     }
 
+    // MARK: - 格式化
+
     private func formatDuration(_ d: Double) -> String {
         let h = Int(d) / 3600
         let m = (Int(d) % 3600) / 60
@@ -200,6 +232,208 @@ struct TimelineView: View {
             return m * 60 + s
         }
         return Double(str)
+    }
+}
+
+// MARK: - 轨道行视图
+
+struct TrackRowView: View {
+    let track: Track
+    let selectedClipId: String?
+    let onSelectClip: (String) -> Void
+    let onRemoveClip: (TimelineClip) -> Void
+    let onTrimClip: (TimelineClip, TimelineView.TrimType) -> Void
+    let onQuickTrim: (TimelineClip, Double, Bool) -> Void
+    let onResetTrim: (TimelineClip) -> Void
+    let onToggleMute: () -> Void
+    let onRemoveTrack: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                // 轨道标签
+                HStack(spacing: 4) {
+                    Image(systemName: track.type.iconName)
+                        .font(.caption2)
+                        .foregroundStyle(trackColor)
+                    Text(track.name)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                }
+                .frame(width: 72, alignment: .leading)
+
+                // 静音按钮
+                Button {
+                    onToggleMute()
+                } label: {
+                    Image(systemName: track.isMuted ? "speaker.slash" : "speaker.wave.2")
+                        .font(.caption2)
+                        .foregroundStyle(track.isMuted ? .red : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 20)
+
+                // 片段列表
+                if track.clips.isEmpty {
+                    Text(emptyText)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 4) {
+                            ForEach(track.sortedClips) { clip in
+                                ClipView(
+                                    clip: clip,
+                                    trackType: track.type,
+                                    isSelected: clip.id == selectedClipId
+                                )
+                                .onTapGesture { onSelectClip(clip.id) }
+                                .contextMenu {
+                                    if track.type == .video {
+                                        Button("裁剪开头…") { onTrimClip(clip, .inPoint) }
+                                        Button("裁剪结尾…") { onTrimClip(clip, .outPoint) }
+                                        Divider()
+                                        Button("裁掉前 5 秒") { onQuickTrim(clip, 5, false) }
+                                        Button("裁掉后 5 秒") { onQuickTrim(clip, 5, true) }
+                                        Divider()
+                                        Button("重置裁剪") { onResetTrim(clip) }
+                                        Divider()
+                                    }
+                                    Button("移除", role: .destructive) { onRemoveClip(clip) }
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                // 轨道菜单
+                Menu {
+                    if track.type != .video {
+                        Button("删除轨道", role: .destructive) { onRemoveTrack() }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 16)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(trackBg)
+
+            Divider()
+        }
+    }
+
+    private var trackColor: Color {
+        switch track.type {
+        case .video:    return .blue
+        case .audio:    return .green
+        case .subtitle: return .orange
+        }
+    }
+
+    private var trackBg: Color {
+        track.type == .video
+            ? Color.blue.opacity(0.05)
+            : Color(nsColor: .controlBackgroundColor)
+    }
+
+    private var emptyText: String {
+        switch track.type {
+        case .video:    return "拖入视频素材"
+        case .audio:    return "拖入音频素材"
+        case .subtitle: return "生成或手动添加字幕"
+        }
+    }
+}
+
+// MARK: - 片段视图
+
+struct ClipView: View {
+    let clip: TimelineClip
+    let trackType: TrackType
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(spacing: 1) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? Color.accentColor.opacity(0.3) : clipColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                )
+                .frame(width: clipWidth, height: trackHeight)
+                .overlay(alignment: .leading) {
+                    clipContent
+                        .padding(.horizontal, 4)
+                }
+
+            Text("\(formatTime(clip.inPoint)) — \(formatTime(clip.outPoint))")
+                .font(.system(size: 8).monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var clipContent: some View {
+        switch trackType {
+        case .video:
+            HStack(spacing: 2) {
+                Image(systemName: "film")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.secondary)
+                Text(clip.mediaItemId.prefix(6))
+                    .font(.system(size: 8))
+                    .lineLimit(1)
+            }
+        case .audio:
+            HStack(spacing: 2) {
+                Image(systemName: "speaker.wave.2")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.secondary)
+                Text(clip.mediaItemId.prefix(6))
+                    .font(.system(size: 8))
+                    .lineLimit(1)
+            }
+        case .subtitle:
+            Text(clip.subtitleText ?? "...")
+                .font(.system(size: 9))
+                .lineLimit(2)
+                .foregroundStyle(.primary)
+        }
+    }
+
+    private var clipColor: Color {
+        switch trackType {
+        case .video:    return Color.blue.opacity(0.15)
+        case .audio:    return Color.green.opacity(0.15)
+        case .subtitle: return Color.orange.opacity(0.15)
+        }
+    }
+
+    private var trackHeight: CGFloat {
+        switch trackType {
+        case .video:    return 40
+        case .audio:    return 28
+        case .subtitle: return 28
+        }
+    }
+
+    private var clipWidth: CGFloat {
+        let duration = clip.duration
+        return max(60, min(250, CGFloat(duration) * 8))
+    }
+
+    private func formatTime(_ t: Double) -> String {
+        let m = Int(t) / 60
+        let s = Int(t) % 60
+        let ms = Int((t - Double(Int(t))) * 10)
+        return String(format: "%d:%02d.%d", m, s, ms)
     }
 }
 
@@ -249,54 +483,6 @@ struct TrimDialog: View {
         }
         .padding(20)
         .frame(width: 320)
-    }
-
-    private func formatTime(_ t: Double) -> String {
-        let m = Int(t) / 60
-        let s = Int(t) % 60
-        let ms = Int((t - Double(Int(t))) * 10)
-        return String(format: "%d:%02d.%d", m, s, ms)
-    }
-}
-
-// MARK: - 时间线片段视图
-
-struct TimelineClipView: View {
-    let clip: TimelineClip
-    let mediaItem: MediaItem?
-    let isSelected: Bool
-
-    var body: some View {
-        VStack(spacing: 2) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(isSelected ? Color.accentColor.opacity(0.3) : Color(nsColor: .separatorColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-                )
-                .frame(width: clipWidth, height: 48)
-                .overlay(alignment: .leading) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "film")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(mediaItem?.originalFileName ?? "Unknown")
-                            .font(.caption2)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .padding(.horizontal, 6)
-                }
-
-            Text("\(formatTime(clip.inPoint)) — \(formatTime(clip.outPoint))")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var clipWidth: CGFloat {
-        let duration = clip.duration
-        return max(80, min(300, CGFloat(duration) * 10))
     }
 
     private func formatTime(_ t: Double) -> String {
