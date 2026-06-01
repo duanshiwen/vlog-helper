@@ -31,11 +31,11 @@ def create():
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     tx = (SIZE - tw) // 2 - bbox[0]
     ty = (SIZE - th) // 2 - bbox[1] + 10
-    draw.text((tx, ty), text, fill=(40, 40, 50), font=font)
+    draw.text((tx, ty), text, fill=(40, 40, 50, 140), font=font)
 
     # ── 半透明播放三角（覆盖在文字中间，YouTube 风格）──
     cx, cy = SIZE // 2, SIZE // 2
-    tri_size = 180
+    tri_size = 300
     tri_cx = cx + 10
     tri_cy = cy
     h = tri_size
