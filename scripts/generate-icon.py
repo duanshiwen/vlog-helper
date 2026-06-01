@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""VlogPack icon v3 — modern flat, Apple-style."""
-from PIL import Image, ImageDraw
+"""VlogPack icon v4 — VP + semi-transparent play button."""
+from PIL import Image, ImageDraw, ImageFont
 import os, subprocess, tempfile
 
 SIZE = 1024
@@ -10,56 +10,43 @@ def create():
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # ── 背景：纯色 深靛蓝 ─────────────────────────
+    # ── 背景：纯白圆角 ─────────────────────────────
     draw.rounded_rectangle(
         [(0, 0), (SIZE - 1, SIZE - 1)],
         radius=228,
-        fill=(30, 35, 80),
+        fill=(255, 255, 255),
     )
 
-    cx, cy = SIZE // 2, SIZE // 2 - 10
+    # ── VP 文字 ────────────────────────────────────
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/SFNSRounded.ttf", 520)
+    except:
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 520)
+        except:
+            font = ImageFont.load_default()
 
-    # ── 播放按钮：纯白圆角方形 + 三角 ──────────────
-    # 圆角方形背景（纯白，不透明）
-    box = 340
-    bx, by = cx - box // 2, cy - box // 2
-    draw.rounded_rectangle(
-        [(bx, by), (bx + box, by + box)],
-        radius=72,
-        fill=(255, 255, 255, 240),
-    )
+    text = "VP"
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    tx = (SIZE - tw) // 2 - bbox[0]
+    ty = (SIZE - th) // 2 - bbox[1] + 10
+    draw.text((tx, ty), text, fill=(40, 40, 50), font=font)
 
-    # 三角形（深靛蓝，和背景呼应）
-    tri_cx = cx + 22
+    # ── 半透明播放三角（覆盖在文字中间，YouTube 风格）──
+    cx, cy = SIZE // 2, SIZE // 2
+    tri_size = 180
+    tri_cx = cx + 10
     tri_cy = cy
-    s = 110
-    draw.polygon(
-        [
-            (tri_cx - s // 3, tri_cy - int(s * 0.577)),
-            (tri_cx - s // 3, tri_cy + int(s * 0.577)),
-            (tri_cx + s * 2 // 3, tri_cy),
-        ],
-        fill=(30, 35, 80),
-    )
-
-    # ── 底部小圆点（三个，表示多片段） ────────────
-    dot_y = by + box + 60
-    dot_r = 14
-    for i, dx in enumerate([-50, 0, 50]):
-        a = 180 if i == 1 else 100
-        draw.ellipse(
-            [(cx + dx - dot_r, dot_y - dot_r), (cx + dx + dot_r, dot_y + dot_r)],
-            fill=(255, 255, 255, a),
-        )
-
-    # ── 外圈微光（极淡） ──────────────────────────
-    for r in range(420, 380, -1):
-        a = 4
-        draw.ellipse(
-            [(cx - r, cy - r), (cx + r, cy + r)],
-            outline=(140, 160, 255, a),
-            width=1,
-        )
+    h = tri_size
+    w = int(h * 0.866)
+    tri_points = [
+        (tri_cx - w // 3, tri_cy - h // 2),
+        (tri_cx - w // 3, tri_cy + h // 2),
+        (tri_cx + w * 2 // 3, tri_cy),
+    ]
+    # 半透明白色三角
+    draw.polygon(tri_points, fill=(255, 255, 255, 140))
 
     return img
 
