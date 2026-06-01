@@ -83,6 +83,7 @@ public final class TimelineService: @unchecked Sendable {
             trackId: trackId,
             inPoint: 0,
             outPoint: mediaItem.duration > 0 ? mediaItem.duration : 0,
+            startTime: nextStartTime(forTrackIndex: trackIndex, project: project),
             order: project.timeline.tracks[trackIndex].clips.count
         )
         project.timeline.tracks[trackIndex].clips.append(clip)
@@ -149,6 +150,47 @@ public final class TimelineService: @unchecked Sendable {
 
         reindexClips(trackIndex: sourceTrackIndex, project: &project)
         reindexClips(trackIndex: targetTrackIndex, project: &project)
+    }
+
+    /// 设置片段在时间线上的起始时间
+    public func setStartTime(
+        clipId: String,
+        startTime: Double,
+        project: inout VlogProject
+    ) throws {
+        guard let (trackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
+            throw TimelineServiceError.clipNotFound(id: clipId)
+        }
+        project.timeline.tracks[trackIndex].clips[clipIndex].startTime = max(0, startTime)
+        reindexClips(trackIndex: trackIndex, project: &project)
+    }
+
+    /// 在 clip 内的相对时间切分片段
+    @discardableResult
+    public func splitClip(
+        clipId: String,
+        atRelativeTime relativeTime: Double,
+        project: inout VlogProject
+    ) throws -> TimelineClip {
+        guard let (trackIndex, clipIndex) = findClip(clipId: clipId, project: project) else {
+            throw TimelineServiceError.clipNotFound(id: clipId)
+        }
+        let clip = project.timeline.tracks[trackIndex].clips[clipIndex]
+        guard relativeTime > 0, relativeTime < clip.duration else {
+            throw TimelineServiceError.invalidInPoint
+        }
+
+        let splitSourceTime = clip.inPoint + relativeTime
+        project.timeline.tracks[trackIndex].clips[clipIndex].outPoint = splitSourceTime
+
+        var right = clip
+        right.id = UUID().uuidString
+        right.inPoint = splitSourceTime
+        right.startTime = clip.startTime + relativeTime
+        right.order = clip.order + 1
+        project.timeline.tracks[trackIndex].clips.insert(right, at: clipIndex + 1)
+        reindexClips(trackIndex: trackIndex, project: &project)
+        return right
     }
 
     // MARK: - 裁剪
@@ -225,6 +267,10 @@ public final class TimelineService: @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    private func nextStartTime(forTrackIndex trackIndex: Int, project: VlogProject) -> Double {
+        project.timeline.tracks[trackIndex].clips.map(\.endTime).max() ?? 0
     }
 
     /// 生成时间线导出计划（视频轨道）

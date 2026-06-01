@@ -191,7 +191,7 @@ struct PreviewPlayerView: View {
         // 优先使用多轨字幕 clip
         if let subtitleTrack = project.timeline.subtitleTrack {
             for clip in subtitleTrack.sortedClips {
-                if timelineTime >= clip.inPoint && timelineTime < clip.outPoint {
+                if timelineTime >= clip.startTime && timelineTime < clip.endTime {
                     return clip.subtitleText ?? ""
                 }
             }
@@ -211,14 +211,7 @@ struct PreviewPlayerView: View {
 
     /// 当前 clip 内相对时间 → 全局时间线时间
     private func timelineTime(for clip: TimelineClip, relativeTime: Double) -> Double {
-        guard let project = appState.currentProject,
-              let videoTrack = project.timeline.videoTrack else {
-            return relativeTime
-        }
-        let previousDuration = videoTrack.sortedClips
-            .prefix { $0.id != clip.id }
-            .reduce(0) { $0 + $1.duration }
-        return previousDuration + relativeTime
+        clip.startTime + relativeTime
     }
 
     // MARK: - 加载

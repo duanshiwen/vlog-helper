@@ -56,11 +56,32 @@ public struct VlogProject: Codable, Sendable, Equatable {
                 order: 0
             )
             timeline = Timeline(tracks: [videoTrack])
+            assignSequentialStartTimesIfNeeded()
             schemaVersion = "0.2.0"
         } else if timeline.tracks.isEmpty {
             // 全新项目：创建默认视频轨道
             let videoTrack = Track(name: "主视频", type: .video, order: 0)
             timeline = Timeline(tracks: [videoTrack])
+        } else {
+            assignSequentialStartTimesIfNeeded()
+        }
+    }
+
+    /// 旧项目只有 order，没有显式 startTime。若同一轨道多个 clip 的 startTime 全为 0，则按顺序补齐。
+    private mutating func assignSequentialStartTimesIfNeeded() {
+        for trackIndex in timeline.tracks.indices {
+            guard timeline.tracks[trackIndex].clips.count > 1 else { continue }
+            let clips = timeline.tracks[trackIndex].clips
+            guard clips.allSatisfy({ $0.startTime == 0 }) else { continue }
+
+            var cursor = 0.0
+            let orderedIndices = clips.indices.sorted {
+                clips[$0].order < clips[$1].order
+            }
+            for index in orderedIndices {
+                timeline.tracks[trackIndex].clips[index].startTime = cursor
+                cursor += timeline.tracks[trackIndex].clips[index].duration
+            }
         }
     }
 }

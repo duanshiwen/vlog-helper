@@ -52,18 +52,31 @@ public struct Track: Codable, Sendable, Identifiable, Equatable {
         self.id = id
         self.name = name
         self.type = type
-        self.clips = clips
+        if clips.count > 1 && clips.allSatisfy({ $0.startTime == 0 }) {
+            var migrated = clips
+            var cursor = 0.0
+            for index in migrated.indices.sorted(by: { migrated[$0].order < migrated[$1].order }) {
+                migrated[index].startTime = cursor
+                cursor += migrated[index].duration
+            }
+            self.clips = migrated
+        } else {
+            self.clips = clips
+        }
         self.isMuted = isMuted
         self.order = order
     }
 
-    /// 按 order 排序后的片段
+    /// 按时间线位置排序后的片段
     public var sortedClips: [TimelineClip] {
-        clips.sorted { $0.order < $1.order }
+        clips.sorted {
+            if $0.startTime == $1.startTime { return $0.order < $1.order }
+            return $0.startTime < $1.startTime
+        }
     }
 
     /// 轨道总时长（秒）
     public var totalDuration: Double {
-        clips.reduce(0) { $0 + $1.duration }
+        clips.map(\.endTime).max() ?? 0
     }
 }

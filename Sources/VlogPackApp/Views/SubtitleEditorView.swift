@@ -217,6 +217,7 @@ struct SubtitleEditorView: View {
                 trackId: subtitleTrack.id,
                 inPoint: segment.start,
                 outPoint: segment.end,
+                startTime: segment.start,
                 order: project.timeline.tracks[project.timeline.tracks.firstIndex(where: { $0.id == subtitleTrack.id })!].clips.count,
                 subtitleText: segment.text
             )

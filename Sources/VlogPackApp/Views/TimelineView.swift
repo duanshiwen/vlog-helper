@@ -9,6 +9,13 @@ struct TimelineView: View {
     @State private var trimDialogClip: TimelineClip?
     @State private var trimDialogType: TrimType = .inPoint
     @State private var trimValue: String = ""
+    @State private var zoom: Double = 1.0
+    @State private var activeTool: TimelineTool = .select
+
+    enum TimelineTool {
+        case select
+        case blade
+    }
 
     enum TrimType {
         case inPoint, outPoint
@@ -23,6 +30,21 @@ struct TimelineView: View {
                 Text("时间线")
                     .font(.headline)
                 Spacer()
+
+                Text("时间码 \(formatDuration(selectedClip?.startTime ?? 0))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "minus.magnifyingglass")
+                    Slider(value: $zoom, in: 0.5...4.0)
+                        .frame(width: 100)
+                    Image(systemName: "plus.magnifyingglass")
+                    Text("\(Int(zoom * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .frame(width: 42, alignment: .trailing)
+                }
+
                 Text(formatDuration(totalDuration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -45,10 +67,20 @@ struct TimelineView: View {
             if tracks.isEmpty {
                 emptyTimelineView
             } else {
-                ScrollView(.horizontal) {
-                    ScrollView(.vertical) {
-                        VStack(spacing: 1) {
-                            ForEach(sortedTracks) { track in
+                HStack(spacing: 0) {
+                    timelineToolRail
+                    Divider()
+                    ScrollView(.horizontal) {
+                        ScrollView(.vertical) {
+                            VStack(spacing: 1) {
+                                TimelineRulerView(
+                                    duration: max(totalDuration, 1),
+                                    pixelsPerSecond: pixelsPerSecond,
+                                    width: timelineCanvasWidth
+                                )
+                                .padding(.leading, 116)
+
+                                ForEach(sortedTracks) { track in
                                 TrackRowView(
                                 track: track,
                                 selectedClipId: appState.selectedClipId,
@@ -84,15 +116,24 @@ struct TimelineView: View {
                                     onMoveClip: { clipId, targetTrackId, targetIndex in
                                         moveClip(clipId: clipId, toTrack: targetTrackId, index: targetIndex)
                                     },
-                                    timelineDuration: max(totalDuration, 1)
-                                )
+                                    timelineDuration: max(totalDuration, 1),
+                                    pixelsPerSecond: pixelsPerSecond,
+                                    onSetStartTime: { clipId, startTime in
+                                        setClipStartTime(clipId: clipId, startTime: startTime)
+                                    },
+                                        onSplitClip: { clipId, relativeTime in
+                                            splitClip(clipId: clipId, at: relativeTime)
+                                        },
+                                        activeTool: activeTool
+                                    )
+                                }
                             }
+                            .padding(8)
                         }
-                        .padding(8)
+                        .frame(minWidth: timelineCanvasWidth + 128)
                     }
-                    .frame(minWidth: timelineCanvasWidth + 128)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
@@ -111,6 +152,39 @@ struct TimelineView: View {
                 }
             )
         }
+    }
+
+    // MARK: - 工具栏
+
+    private var timelineToolRail: some View {
+        VStack(spacing: 8) {
+            Button {
+                activeTool = .select
+            } label: {
+                Image(systemName: "cursorarrow")
+                    .frame(width: 28, height: 28)
+                    .background(activeTool == .select ? Color.accentColor.opacity(0.18) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help("选择/移动工具")
+
+            Button {
+                activeTool = .blade
+            } label: {
+                Image(systemName: "scissors")
+                    .frame(width: 28, height: 28)
+                    .background(activeTool == .blade ? Color.accentColor.opacity(0.18) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help("自由切分工具：点击片段上的位置进行切分")
+
+            Spacer()
+        }
+        .padding(.vertical, 8)
+        .frame(width: 44)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     // MARK: - 空状态
@@ -145,7 +219,12 @@ struct TimelineView: View {
         appState.currentProject?.timeline.totalDuration ?? 0
     }
 
-    private var pixelsPerSecond: CGFloat { 12 }
+    private var pixelsPerSecond: CGFloat { CGFloat(12 * zoom) }
+
+    private var selectedClip: TimelineClip? {
+        guard let id = appState.selectedClipId else { return nil }
+        return appState.currentProject?.timeline.clip(byId: id)
+    }
 
     private var timelineCanvasWidth: CGFloat {
         max(520, CGFloat(max(totalDuration, 1)) * pixelsPerSecond)
@@ -185,6 +264,34 @@ struct TimelineView: View {
         timelineService.removeClip(clipId: clip.id, project: &project)
         appState.currentProject = project
         try? appState.saveCurrentProject()
+    }
+
+    private func setClipStartTime(clipId: String, startTime: Double) {
+        guard var project = appState.currentProject else { return }
+        do {
+            try timelineService.setStartTime(clipId: clipId, startTime: startTime, project: &project)
+            appState.currentProject = project
+            appState.selectedClipId = clipId
+            try? appState.saveCurrentProject()
+        } catch {
+            // 非法定位直接忽略
+        }
+    }
+
+    private func splitSelectedClip() {
+        guard let clip = selectedClip else { return }
+        splitClip(clipId: clip.id, at: clip.duration / 2)
+    }
+
+    private func splitClip(clipId: String, at relativeTime: Double) {
+        guard var project = appState.currentProject else { return }
+        do {
+            _ = try timelineService.splitClip(clipId: clipId, atRelativeTime: relativeTime, project: &project)
+            appState.currentProject = project
+            try? appState.saveCurrentProject()
+        } catch {
+            // 非法切分直接忽略
+        }
     }
 
     private func moveClip(clipId: String, toTrack targetTrackId: String, index targetIndex: Int) {
@@ -265,6 +372,49 @@ struct TimelineView: View {
     }
 }
 
+// MARK: - 时间码标尺
+
+struct TimelineRulerView: View {
+    let duration: Double
+    let pixelsPerSecond: CGFloat
+    let width: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(Color(nsColor: .controlBackgroundColor))
+            ForEach(0...Int(ceil(duration)), id: \.self) { second in
+                VStack(alignment: .leading, spacing: 2) {
+                    Rectangle()
+                        .fill(second % majorStep == 0 ? Color.secondary.opacity(0.55) : Color.secondary.opacity(0.22))
+                        .frame(width: 1, height: second % majorStep == 0 ? 12 : 6)
+                    if second % majorStep == 0 {
+                        Text(formatTime(Double(second)))
+                            .font(.system(size: 9).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .offset(x: CGFloat(second) * pixelsPerSecond)
+            }
+        }
+        .frame(width: width, height: 28)
+    }
+
+    private var majorStep: Int {
+        if pixelsPerSecond >= 36 { return 1 }
+        if pixelsPerSecond >= 18 { return 5 }
+        return 10
+    }
+
+    private func formatTime(_ t: Double) -> String {
+        let h = Int(t) / 3600
+        let m = (Int(t) % 3600) / 60
+        let s = Int(t) % 60
+        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
+        return String(format: "%02d:%02d", m, s)
+    }
+}
+
 // MARK: - 轨道行视图
 
 struct TrackRowView: View {
@@ -279,10 +429,15 @@ struct TrackRowView: View {
     let onRemoveTrack: () -> Void
     let onMoveClip: (String, String, Int) -> Void
     let timelineDuration: Double
+    let pixelsPerSecond: CGFloat
+    let onSetStartTime: (String, Double) -> Void
+    let onSplitClip: (String, Double) -> Void
+    let activeTool: TimelineView.TimelineTool
+    @State private var dragStartTimes: [String: Double] = [:]
+    @State private var hoverXByClipId: [String: CGFloat] = [:]
 
     private let headerWidth: CGFloat = 108
     private let menuWidth: CGFloat = 24
-    private let pixelsPerSecond: CGFloat = 12
 
     var body: some View {
         VStack(spacing: 0) {
@@ -309,7 +464,23 @@ struct TrackRowView: View {
                                 x: clipX(clip) + clipWidth(clip) / 2,
                                 y: rowHeight / 2
                             )
-                            .onTapGesture { onSelectClip(clip.id) }
+                            .onTapGesture {
+                                if activeTool == .blade {
+                                    let x = min(max(hoverXByClipId[clip.id] ?? clipWidth(clip) / 2, 0), clipWidth(clip))
+                                    let relativeTime = Double(x / pixelsPerSecond)
+                                    onSplitClip(clip.id, relativeTime)
+                                } else {
+                                    onSelectClip(clip.id)
+                                }
+                            }
+                            .onContinuousHover { phase in
+                                switch phase {
+                                case .active(let location):
+                                    hoverXByClipId[clip.id] = location.x
+                                case .ended:
+                                    hoverXByClipId[clip.id] = nil
+                                }
+                            }
                             .onDrag {
                                 onSelectClip(clip.id)
                                 return NSItemProvider(object: clip.id as NSString)
@@ -317,6 +488,21 @@ struct TrackRowView: View {
                             .onDrop(of: [.plainText], isTargeted: nil) { providers in
                                 handleDrop(providers: providers, targetIndex: index)
                             }
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 2)
+                                    .onChanged { value in
+                                        guard activeTool == .select else { return }
+                                        if dragStartTimes[clip.id] == nil {
+                                            dragStartTimes[clip.id] = clip.startTime
+                                        }
+                                        let base = dragStartTimes[clip.id] ?? clip.startTime
+                                        let newStart = max(0, base + Double(value.translation.width / pixelsPerSecond))
+                                        onSetStartTime(clip.id, newStart)
+                                    }
+                                    .onEnded { _ in
+                                        dragStartTimes[clip.id] = nil
+                                    }
+                            )
                             .contextMenu {
                                 if track.type == .video {
                                     Button("裁剪开头…") { onTrimClip(clip, .inPoint) }
@@ -413,17 +599,7 @@ struct TrackRowView: View {
     }
 
     private func clipStartOnTimeline(_ clip: TimelineClip) -> Double {
-        switch track.type {
-        case .video, .audio:
-            var start = 0.0
-            for item in track.sortedClips {
-                if item.id == clip.id { break }
-                start += item.duration
-            }
-            return start
-        case .subtitle:
-            return clip.inPoint
-        }
+        clip.startTime
     }
 
     private func clipX(_ clip: TimelineClip) -> CGFloat {

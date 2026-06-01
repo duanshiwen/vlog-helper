@@ -11,6 +11,8 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
     public var inPoint: Double
     /// 出点（秒）
     public var outPoint: Double
+    /// 在时间线上的起始时间（秒）
+    public var startTime: Double
     /// 排序序号
     public var order: Int
     /// 字幕文本（仅字幕轨道使用）
@@ -22,6 +24,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         trackId: String = "",
         inPoint: Double = 0,
         outPoint: Double = 0,
+        startTime: Double = 0,
         order: Int = 0,
         subtitleText: String? = nil
     ) {
@@ -30,6 +33,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         self.trackId = trackId
         self.inPoint = inPoint
         self.outPoint = outPoint
+        self.startTime = startTime
         self.order = order
         self.subtitleText = subtitleText
     }
@@ -42,6 +46,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         case trackId
         case inPoint
         case outPoint
+        case startTime
         case order
         case subtitleText
     }
@@ -53,6 +58,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         trackId = try container.decodeIfPresent(String.self, forKey: .trackId) ?? ""
         inPoint = try container.decodeIfPresent(Double.self, forKey: .inPoint) ?? 0
         outPoint = try container.decodeIfPresent(Double.self, forKey: .outPoint) ?? 0
+        startTime = try container.decodeIfPresent(Double.self, forKey: .startTime) ?? 0
         order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
         subtitleText = try container.decodeIfPresent(String.self, forKey: .subtitleText)
     }
@@ -64,6 +70,7 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
         try container.encode(trackId, forKey: .trackId)
         try container.encode(inPoint, forKey: .inPoint)
         try container.encode(outPoint, forKey: .outPoint)
+        try container.encode(startTime, forKey: .startTime)
         try container.encode(order, forKey: .order)
         try container.encodeIfPresent(subtitleText, forKey: .subtitleText)
     }
@@ -71,6 +78,11 @@ public struct TimelineClip: Codable, Sendable, Identifiable, Equatable {
     /// 片段有效时长（秒）
     public var duration: Double {
         max(0, outPoint - inPoint)
+    }
+
+    /// 在时间线上的结束时间（秒）
+    public var endTime: Double {
+        startTime + duration
     }
 }
 
