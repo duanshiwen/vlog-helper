@@ -31,8 +31,8 @@ Package.resolved
 .idea/
 
 # FFmpeg / Whisper cache (local dev)
-tools/
-models/
+/tools/
+/models/
 *.gguf
 *.bin
 
