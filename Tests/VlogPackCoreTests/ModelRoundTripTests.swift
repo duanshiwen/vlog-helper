@@ -136,6 +136,35 @@ struct ModelRoundTripTests {
         #expect(decoded.subtitleTrack?.clips.count == 1)
     }
 
+    @Test("旧 JSON 格式（timeline.clips 无 tracks）可以正确解码")
+    func testOldJSONFormatDecoding() throws {
+        // 模拟旧版 project.vlogpack.json 的 timeline 部分
+        let json = """
+        {
+          "clips": [
+            {
+              "id": "clip-1",
+              "mediaItemId": "media-1",
+              "inPoint": 0,
+              "outPoint": 10,
+              "order": 0,
+              "trackId": ""
+            }
+          ]
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(Timeline.self, from: data)
+        
+        // 应该自动创建视频轨道并放入旧 clips
+        #expect(decoded.tracks.count == 1)
+        #expect(decoded.tracks[0].type == .video)
+        #expect(decoded.tracks[0].name == "主视频")
+        #expect(decoded.tracks[0].clips.count == 1)
+        #expect(decoded.tracks[0].clips[0].id == "clip-1")
+        #expect(decoded.videoTrack?.clips.count == 1)
+    }
+
     @Test("v0.1 → v0.2 迁移")
     func testMigrationFromV01() {
         // 模拟旧版 Timeline（只有 clips，没有 tracks）
